@@ -1233,6 +1233,40 @@
       },
       "item": [
         {
+          "name": "Preview checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/{{apiPrefix}}/orders/preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiPrefix}}",
+                "orders",
+                "preview"
+              ],
+              "query": []
+            },
+            "description": "Validates the basket and address without placing the order. shippingFee is currently 0.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"address_id\": {{addressId}},\n  \"payment_method\": \"CASH_ON_DELIVERY\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Place order (COD)",
           "request": {
             "method": "POST",

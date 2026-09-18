@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { UseCase } from '@shared/application/use-case'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
+import { OrderStatus } from '../../domain/enums/order.enums'
 import { OrderNotFoundError } from '../../domain/errors/ordering.errors'
 import {
   INVENTORY_RESERVATION,
@@ -29,33 +30,33 @@ export class CancelOrderUseCase implements UseCase<CancelOrderCommand, OrderView
   ) {}
 
   async execute(command: CancelOrderCommand): Promise<OrderView> {
-    const order = await this.orders.findById(command.orderId)
-    if (!order) {
-      throw new OrderNotFoundError(command.orderId)
-    }
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const order = await this.orders.findByIdForUpdate(command.orderId, tx)
+      if (!order) {
+        throw new OrderNotFoundError(command.orderId)
+      }
 
-    if (command.userId !== undefined) {
-      order.ensureOwnedBy(command.userId)
-    }
+      if (command.userId !== undefined) {
+        order.ensureOwnedBy(command.userId)
+      }
 
-    const plan = order.stockAllocations
-    order.cancel()
+      const plan = order.stockAllocations
+      order.cancel()
 
-    await this.prisma.$transaction(async (tx) => {
       if (plan.allocations.length > 0) {
         await this.inventory.release(plan, tx)
       }
-      await this.orders.save(order, tx)
+      return this.orders.saveIfStatus(order, OrderStatus.Pending, tx)
     })
 
-    await this.paymentTimeouts.cancelScheduled(order.id)
+    await this.paymentTimeouts.cancelScheduled(cancelled.id)
 
-    const view = await this.orderReads.findById(order.id)
+    const view = await this.orderReads.findById(cancelled.id)
     if (!view) {
-      throw new OrderNotFoundError(order.id)
+      throw new OrderNotFoundError(cancelled.id)
     }
 
-    await this.orderNotifications.cancelled(order)
+    await this.orderNotifications.cancelled(cancelled)
 
     return view
   }

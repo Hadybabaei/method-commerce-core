@@ -24,6 +24,30 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return record ? toDomain(record) : null
   }
 
+  async findInFlightByOrderId(orderId: number, tx?: unknown): Promise<Payment | null> {
+    const client = (tx as Prisma.TransactionClient | undefined) ?? this.prisma
+    const record = await client.payment.findFirst({
+      where: {
+        orderId,
+        status: { in: [PaymentStatus.Initiated, PaymentStatus.Succeeded] },
+      },
+      orderBy: { id: 'desc' },
+    })
+    return record ? toDomain(record) : null
+  }
+
+  async findByIdForUpdate(id: number, tx: unknown): Promise<Payment | null> {
+    const client = this.requireTx(tx)
+    const locked = await client.$queryRaw<{ id: number }[]>`
+      SELECT id FROM payment WHERE id = ${id} FOR UPDATE
+    `
+    if (locked.length === 0) {
+      return null
+    }
+    const record = await client.payment.findUnique({ where: { id } })
+    return record ? toDomain(record) : null
+  }
+
   async save(payment: Payment, tx?: unknown): Promise<Payment> {
     const client = (tx as Prisma.TransactionClient | undefined) ?? this.prisma
 
@@ -53,6 +77,13 @@ export class PrismaPaymentRepository implements PaymentRepository {
       },
     })
     return toDomain(record)
+  }
+
+  private requireTx(tx: unknown): Prisma.TransactionClient {
+    if (!tx) {
+      throw new Error('Payment lock requires an open Prisma transaction')
+    }
+    return tx as Prisma.TransactionClient
   }
 }
 

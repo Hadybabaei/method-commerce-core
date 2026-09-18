@@ -144,3 +144,49 @@ export class PaginatedOrdersResponse extends PaginationMeta {
   @ApiProperty({ type: [OrderResponse] })
   items: OrderResponse[]
 }
+
+export class CheckoutPreviewItemResponse {
+  @ApiProperty({ example: 11 })
+  variantId: number
+
+  @ApiProperty({ example: 2 })
+  quantity: number
+
+  @ApiProperty({ example: 2_400_000 })
+  unitPrice: number
+
+  @ApiProperty({ example: 4_800_000 })
+  lineTotal: number
+
+  @ApiProperty({ type: OrderProductSnapshotResponse })
+  product: OrderProductSnapshotResponse
+}
+
+export class CheckoutPreviewResponse {
+  @ApiProperty({ type: OrderAddressResponse })
+  address: OrderAddressResponse
+
+  @ApiProperty({ type: [CheckoutPreviewItemResponse] })
+  items: CheckoutPreviewItemResponse[]
+
+  @ApiProperty({ example: 2 })
+  itemCount: number
+
+  @ApiProperty({ example: 4_800_000, description: 'Sum of line totals in Rial.' })
+  subtotal: number
+
+  @ApiProperty({
+    example: 0,
+    description: 'Reserved for a future shipping quote. Currently always 0.',
+  })
+  shippingFee: number
+
+  @ApiProperty({ example: 4_800_000, description: 'subtotal + shippingFee, in Rial.' })
+  total: number
+
+  @ApiProperty({ enum: PAYMENT_METHODS, example: PaymentMethod.CashOnDelivery })
+  paymentMethod: PaymentMethod
+
+  @ApiProperty({ nullable: true })
+  note: string | null
+}

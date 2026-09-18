@@ -9,7 +9,7 @@ import {
   OrderNotCompletableError,
   OrderNotOwnedError,
   OrderNotPayableError,
-  PaymentAlreadyFailedError,
+  PaymentAlreadyInProgressError,
   PaymentNotFoundError,
 } from '../../domain/errors/ordering.errors'
 import {
@@ -348,7 +348,7 @@ describe('Commerce scenarios', () => {
       expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 3, reserved: 0 })
     })
 
-    it('marks payment FAILED without releasing stock; a new key can retry', async () => {
+    it('marks payment FAILED without releasing stock; the same key can retry', async () => {
       const { h, order } = await onlineOrder()
       const payment = await h.initiatePayment.execute({
         orderId: order.id,
@@ -363,20 +363,13 @@ describe('Commerce scenarios', () => {
       expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Pending)
       expect(h.inventory.snapshot(variantId)[0].reserved).toBe(2)
 
-      await expect(
-        h.initiatePayment.execute({
-          orderId: order.id,
-          userId,
-          idempotencyKey: 'pay-fail',
-        })
-      ).rejects.toBeInstanceOf(PaymentAlreadyFailedError)
-
       const retry = await h.initiatePayment.execute({
         orderId: order.id,
         userId,
-        idempotencyKey: 'pay-fail-retry',
+        idempotencyKey: 'pay-fail',
       })
       expect(retry.status).toBe(PaymentStatus.Initiated)
+      expect(retry.id).toBe(payment.id)
       expect(retry.gatewayRef).not.toBe(payment.gatewayRef)
     })
 
@@ -403,7 +396,25 @@ describe('Commerce scenarios', () => {
       expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Pending)
     })
 
-    it('rejects paying a cancelled order via callback', async () => {
+    it('rejects a second Idempotency-Key while a payment is already in flight', async () => {
+      const { h, order } = await onlineOrder()
+      const first = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'pay-first',
+      })
+      expect(first.status).toBe(PaymentStatus.Initiated)
+
+      await expect(
+        h.initiatePayment.execute({
+          orderId: order.id,
+          userId,
+          idempotencyKey: 'pay-second',
+        })
+      ).rejects.toBeInstanceOf(PaymentAlreadyInProgressError)
+    })
+
+    it('revives a cancelled ONLINE order when the gateway later confirms payment', async () => {
       const { h, order } = await onlineOrder()
       const payment = await h.initiatePayment.execute({
         orderId: order.id,
@@ -411,12 +422,20 @@ describe('Commerce scenarios', () => {
         idempotencyKey: 'late-pay',
       })
       await h.cancelOrder.execute({ orderId: order.id, userId })
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Cancelled)
+      expect(h.inventory.snapshot(variantId)[0].reserved).toBe(0)
 
-      await expect(
-        h.handleCallback.execute({
-          raw: h.successCallbackRaw(payment.gatewayRef!),
-        })
-      ).rejects.toBeInstanceOf(OrderNotPayableError)
+      const result = await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+
+      expect(result.order.status).toBe(OrderStatus.Paid)
+      expect(result.order.cancelledAt).toBeNull()
+      expect(result.payment.status).toBe(PaymentStatus.Succeeded)
+      expect(h.orders.byId.get(order.id)?.reservationStatus).toBe(
+        OrderReservationStatus.Consumed
+      )
+      expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 3, reserved: 0 })
     })
 
     it('rejects cancel after a successful payment', async () => {
@@ -587,6 +606,121 @@ describe('Commerce scenarios', () => {
 
       expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Paid)
       expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 4, reserved: 0 })
+    })
+  })
+
+  describe('Checkout races and preview', () => {
+    it('lets only one of two same-user checkouts succeed', async () => {
+      const { h, addressId } = readyCheckout(10, 2)
+
+      const results = await Promise.allSettled([
+        h.createOrder.execute({ userId, addressId }),
+        h.createOrder.execute({ userId, addressId }),
+      ])
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled')
+      const rejected = results.filter((r) => r.status === 'rejected')
+
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(EmptyBasketError)
+      expect(h.inventory.snapshot(variantId)[0].reserved).toBe(2)
+    })
+
+    it('previews totals without reserving stock or clearing the basket', async () => {
+      const { h, addressId } = readyCheckout(10, 2)
+
+      const preview = await h.previewCheckout.execute({
+        userId,
+        addressId,
+        paymentMethod: PaymentMethod.Online,
+        note: 'عصر',
+      })
+
+      expect(preview.subtotal).toBe(2_000_000)
+      expect(preview.shippingFee).toBe(0)
+      expect(preview.total).toBe(2_000_000)
+      expect(preview.itemCount).toBe(2)
+      expect(preview.paymentMethod).toBe(PaymentMethod.Online)
+      expect(preview.note).toBe('عصر')
+      expect(h.inventory.snapshot(variantId)[0].reserved).toBe(0)
+      expect(await h.baskets.getByUserId(userId)).toMatchObject({
+        items: [{ variantId, quantity: 2 }],
+      })
+    })
+
+    it('pays an order even when the gateway receipt amount mismatches', async () => {
+      const { h, addressId } = readyCheckout(5, 2)
+      const order = await h.createOrder.execute({
+        userId,
+        addressId,
+        paymentMethod: PaymentMethod.Online,
+      })
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'mismatch',
+      })
+      h.gateway.paidAmountByRef.set(payment.gatewayRef!, payment.amount + 1)
+
+      const result = await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+
+      expect(result.order.status).toBe(OrderStatus.Paid)
+      expect(result.payment.status).toBe(PaymentStatus.Succeeded)
+      expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 3, reserved: 0 })
+    })
+
+    it('cancels and releases stock when unpaid-timeout enqueue fails after commit', async () => {
+      const { h, addressId } = readyCheckout(5, 1)
+      h.paymentTimeouts.failNextSchedule = true
+
+      await expect(
+        h.createOrder.execute({
+          userId,
+          addressId,
+          paymentMethod: PaymentMethod.Online,
+        })
+      ).rejects.toThrow('queue unavailable')
+
+      const leftover = [...h.orders.byId.values()]
+      expect(leftover).toHaveLength(1)
+      expect(leftover[0].status).toBe(OrderStatus.Cancelled)
+      expect(h.inventory.snapshot(variantId)[0].reserved).toBe(0)
+      expect(h.inventory.available(variantId)).toBe(5)
+    })
+
+    it('does not consume stock twice when pay and cancel race', async () => {
+      const { h, addressId } = readyCheckout(5, 2)
+      const order = await h.createOrder.execute({
+        userId,
+        addressId,
+        paymentMethod: PaymentMethod.Online,
+      })
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'race-pay-cancel',
+      })
+
+      const results = await Promise.allSettled([
+        h.handleCallback.execute({ raw: h.successCallbackRaw(payment.gatewayRef!) }),
+        h.cancelOrder.execute({ orderId: order.id, userId }),
+      ])
+
+      const statuses = results.map((r) => r.status)
+      expect(statuses.filter((s) => s === 'fulfilled').length).toBeGreaterThanOrEqual(1)
+
+      const persisted = h.orders.byId.get(order.id)!
+      const level = h.inventory.snapshot(variantId)[0]
+      if (persisted.status === OrderStatus.Paid) {
+        expect(level).toMatchObject({ onHand: 3, reserved: 0 })
+        expect(persisted.reservationStatus).toBe(OrderReservationStatus.Consumed)
+      } else {
+        expect(persisted.status).toBe(OrderStatus.Cancelled)
+        expect(level).toMatchObject({ onHand: 5, reserved: 0 })
+      }
     })
   })
 })

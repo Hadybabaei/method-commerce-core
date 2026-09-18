@@ -1,7 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { CLOCK, Clock } from '@shared/application/ports/clock.port'
 import { UseCase } from '@shared/application/use-case'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
+import { Payment } from '../../domain/entities/payment.entity'
+import { Order } from '../../domain/entities/order.aggregate'
 import { OrderStatus, PaymentStatus } from '../../domain/enums/order.enums'
 import {
   OrderNotFoundError,
@@ -33,16 +35,25 @@ export interface PaymentCallbackResult {
   order: OrderView
 }
 
+const PAYMENT_CALLBACK_TX_TIMEOUT_MS = 20_000
+
+type Tx = unknown
+
 /**
  * Completes (or fails) an online payment after the provider redirects back.
  * Success always goes through `PaymentGateway.verifyPayment` so a forged
  * callback cannot mark an order paid without a verified gateway receipt.
+ *
+ * A late capture against a cancelled ONLINE order re-reserves stock and
+ * revives the order so money already taken at the gateway is not dropped.
  */
 @Injectable()
 export class HandlePaymentCallbackUseCase implements UseCase<
   HandlePaymentCallbackCommand,
   PaymentCallbackResult
 > {
+  private readonly logger = new Logger(HandlePaymentCallbackUseCase.name)
+
   constructor(
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(PAYMENT_REPOSITORY) private readonly payments: PaymentRepository,
@@ -65,65 +76,120 @@ export class HandlePaymentCallbackUseCase implements UseCase<
     }
 
     if (payment.status === PaymentStatus.Succeeded) {
+      return this.replay(payment)
+    }
+
+    const outcome = await this.prisma.$transaction(
+      async (tx) => {
+        const lockedPayment = await this.payments.findByIdForUpdate(payment.id, tx)
+        if (!lockedPayment) {
+          throw new PaymentNotFoundError(payment.id)
+        }
+
+        if (lockedPayment.status === PaymentStatus.Succeeded) {
+          return { kind: 'replay' as const, payment: lockedPayment }
+        }
+
+        if (!parsed.reportedSuccess) {
+          lockedPayment.markFailed('Gateway reported unsuccessful checkout', this.clock.now())
+          const saved = await this.payments.save(lockedPayment, tx)
+          return { kind: 'failed' as const, payment: saved }
+        }
+
+        if (lockedPayment.status === PaymentStatus.Failed) {
+          return { kind: 'failed' as const, payment: lockedPayment }
+        }
+
+        const order = await this.orders.findByIdForUpdate(lockedPayment.orderId, tx)
+        if (!order) {
+          throw new OrderNotFoundError(lockedPayment.orderId)
+        }
+
+        const verified = await this.gateway.verifyPayment({
+          gatewayRef: parsed.gatewayRef,
+          expectedAmount: lockedPayment.amount,
+        })
+
+        if (!verified.ok) {
+          lockedPayment.markFailed(
+            verified.failureReason ?? 'Gateway verification failed',
+            this.clock.now()
+          )
+          const saved = await this.payments.save(lockedPayment, tx)
+          return { kind: 'failed' as const, payment: saved }
+        }
+
+        if (order.status === OrderStatus.Cancelled) {
+          return {
+          kind: 'paid' as const,
+          payment: await this.captureLatePayment(order, lockedPayment, tx),
+        }
+      }
+
+      if (order.status !== OrderStatus.Pending) {
+        throw new OrderNotPayableError('Only a pending order can be paid', {
+          status: order.status,
+        })
+      }
+
       return {
-        payment: toPaymentView(payment),
-        order: await this.requireOrderView(payment.orderId),
+        kind: 'paid' as const,
+        payment: await this.capturePendingPayment(order, lockedPayment, tx),
+      }
+      },
+      { timeout: PAYMENT_CALLBACK_TX_TIMEOUT_MS }
+    )
+
+    if (outcome.kind === 'paid') {
+      await this.paymentTimeouts.cancelScheduled(outcome.payment.orderId)
+      const paidOrder = await this.orders.findById(outcome.payment.orderId)
+      if (paidOrder) {
+        await this.orderNotifications.paid(paidOrder)
       }
     }
 
-    if (!parsed.reportedSuccess) {
-      payment.markFailed('Gateway reported unsuccessful checkout', this.clock.now())
-      const saved = await this.payments.save(payment)
-      return {
-        payment: toPaymentView(saved),
-        order: await this.requireOrderView(saved.orderId),
-      }
+    return {
+      payment: toPaymentView(outcome.payment),
+      order: await this.requireOrderView(outcome.payment.orderId),
     }
+  }
 
-    const verified = await this.gateway.verifyPayment({
-      gatewayRef: parsed.gatewayRef,
-      expectedAmount: payment.amount,
-    })
+  private async capturePendingPayment(
+    order: Order,
+    payment: Payment,
+    tx: Tx
+  ): Promise<Payment> {
+    const now = this.clock.now()
+    const plan = order.stockAllocations
+    order.markPaid(now)
+    payment.markSucceeded(now)
+    await this.inventory.consume(plan, tx)
+    await this.orders.saveIfStatus(order, OrderStatus.Pending, tx)
+    return this.payments.save(payment, tx)
+  }
 
-    if (!verified.ok) {
-      payment.markFailed(verified.failureReason ?? 'Gateway verification failed', this.clock.now())
-      const saved = await this.payments.save(payment)
-      return {
-        payment: toPaymentView(saved),
-        order: await this.requireOrderView(saved.orderId),
-      }
-    }
+  private async captureLatePayment(order: Order, payment: Payment, tx: Tx): Promise<Payment> {
+    this.logger.warn(
+      `Reviving cancelled order ${order.id} after verified gateway capture ${payment.gatewayRef}`
+    )
 
-    const order = await this.orders.findById(payment.orderId)
-    if (!order) {
-      throw new OrderNotFoundError(payment.orderId)
-    }
-
-    if (order.status !== OrderStatus.Pending) {
-      throw new OrderNotPayableError('Only a pending order can be paid', {
-        status: order.status,
-      })
-    }
-
+    const lines = order.items.flatMap((item) =>
+      item.variantId == null ? [] : [{ variantId: item.variantId, quantity: item.quantity }]
+    )
+    const plan = await this.inventory.reserve(lines, tx)
+    order.reviveForPayment(plan)
     const now = this.clock.now()
     order.markPaid(now)
     payment.markSucceeded(now)
-    const plan = order.stockAllocations
+    await this.inventory.consume(plan, tx)
+    await this.orders.saveIfStatus(order, OrderStatus.Cancelled, tx)
+    return this.payments.save(payment, tx)
+  }
 
-    await this.prisma.$transaction(async (tx) => {
-      await this.inventory.consume(plan, tx)
-      await this.orders.save(order, tx)
-      await this.payments.save(payment, tx)
-    })
-
-    await this.paymentTimeouts.cancelScheduled(order.id)
-
-    await this.orderNotifications.paid(order)
-
-    const savedPayment = await this.payments.findById(payment.id)
+  private async replay(payment: Payment): Promise<PaymentCallbackResult> {
     return {
-      payment: toPaymentView(savedPayment ?? payment),
-      order: await this.requireOrderView(order.id),
+      payment: toPaymentView(payment),
+      order: await this.requireOrderView(payment.orderId),
     }
   }
 

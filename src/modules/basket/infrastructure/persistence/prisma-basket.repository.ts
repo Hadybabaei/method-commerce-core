@@ -11,8 +11,9 @@ type Client = Prisma.TransactionClient | PrismaService
 export class PrismaBasketRepository implements BasketRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByUserId(userId: number): Promise<Basket | null> {
-    const record = await this.prisma.basket.findUnique({
+  async findByUserId(userId: number, tx?: unknown): Promise<Basket | null> {
+    const client = this.client(tx)
+    const record = await client.basket.findUnique({
       where: { userId },
       include: { items: true },
     })
@@ -28,8 +29,24 @@ export class PrismaBasketRepository implements BasketRepository {
     )
   }
 
+  async lockByUserId(userId: number, tx: unknown): Promise<Basket | null> {
+    const client = this.requireTx(tx)
+    const locked = await client.$queryRaw<{ id: number }[]>`
+      SELECT id FROM basket WHERE userId = ${userId} FOR UPDATE
+    `
+    if (locked.length === 0) {
+      return null
+    }
+
+    await client.$queryRaw`
+      SELECT id FROM basket_item WHERE basketId = ${locked[0].id} FOR UPDATE
+    `
+
+    return this.findByUserId(userId, tx)
+  }
+
   async save(basket: Basket, tx?: unknown): Promise<Basket> {
-    const client = (tx as Prisma.TransactionClient | undefined) ?? this.prisma
+    const client = this.client(tx)
 
     if (basket.isNew) {
       const created = await client.basket.create({
@@ -81,5 +98,16 @@ export class PrismaBasketRepository implements BasketRepository {
       where: { id: basket.id },
       data: { updated_at: new Date() },
     })
+  }
+
+  private client(tx?: unknown): Client {
+    return (tx as Prisma.TransactionClient | undefined) ?? this.prisma
+  }
+
+  private requireTx(tx: unknown): Prisma.TransactionClient {
+    if (!tx) {
+      throw new Error('Basket lock requires an open Prisma transaction')
+    }
+    return tx as Prisma.TransactionClient
   }
 }

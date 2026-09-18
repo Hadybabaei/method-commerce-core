@@ -7,6 +7,15 @@ export interface PaymentRepository {
 
   findByGatewayRef(gatewayRef: string): Promise<Payment | null>
 
+  /**
+   * Latest INITIATED or SUCCEEDED payment for the order, if any.
+   * Used so a second Idempotency-Key cannot open another charge.
+   */
+  findInFlightByOrderId(orderId: number, tx?: unknown): Promise<Payment | null>
+
+  /** Locks the payment row (`FOR UPDATE`) then loads the aggregate. */
+  findByIdForUpdate(id: number, tx: unknown): Promise<Payment | null>
+
   save(payment: Payment, tx?: unknown): Promise<Payment>
 }
 

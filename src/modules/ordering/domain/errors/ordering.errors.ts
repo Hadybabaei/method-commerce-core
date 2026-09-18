@@ -72,6 +72,12 @@ export class PaymentAlreadyFailedError extends BusinessRuleViolationError {
   }
 }
 
+export class PaymentAlreadyInProgressError extends ConflictError {
+  constructor(details?: Record<string, unknown>) {
+    super('An online payment is already in progress for this order', details)
+  }
+}
+
 export class IdempotencyConflictError extends ConflictError {
   constructor() {
     super('Idempotency key was already used with a different payment payload')
@@ -81,5 +87,20 @@ export class IdempotencyConflictError extends ConflictError {
 export class PaymentGatewayError extends BusinessRuleViolationError {
   constructor(message: string, details?: Record<string, unknown>) {
     super(message, details)
+  }
+}
+
+export class OrderConflictError extends ConflictError {
+  constructor(details?: Record<string, unknown>) {
+    super('Order was updated by another request', details)
+  }
+}
+
+export class InventoryLevelMissingError extends BusinessRuleViolationError {
+  constructor(variantId: number, locationId: number) {
+    super('Inventory row is missing for a reserved allocation', {
+      variant: variantId,
+      location: locationId,
+    })
   }
 }

@@ -30,8 +30,9 @@ import {
   ListOrdersUseCase,
 } from '../../application/use-cases/get-list-orders.use-case'
 import { InitiatePaymentUseCase } from '../../application/use-cases/initiate-payment.use-case'
+import { PreviewCheckoutUseCase } from '../../application/use-cases/preview-checkout.use-case'
 import { CreateOrderRequest, ListOrdersQueryRequest } from '../dto/order.request'
-import { OrderResponse } from '../dto/order.response'
+import { CheckoutPreviewResponse, OrderResponse } from '../dto/order.response'
 import { PaymentResponse } from '../dto/payment.response'
 
 @ApiTags('Orders')
@@ -41,6 +42,7 @@ import { PaymentResponse } from '../dto/payment.response'
 export class OrdersController {
   constructor(
     private readonly createOrderUseCase: CreateOrderUseCase,
+    private readonly previewCheckoutUseCase: PreviewCheckoutUseCase,
     private readonly cancelOrderUseCase: CancelOrderUseCase,
     private readonly getOrderUseCase: GetOrderUseCase,
     private readonly listOrdersUseCase: ListOrdersUseCase,
@@ -62,6 +64,29 @@ export class OrdersController {
   )
   create(@CurrentActor('id') userId: number, @Body() body: CreateOrderRequest) {
     return this.createOrderUseCase.execute({
+      userId,
+      addressId: body.address_id,
+      paymentMethod: body.payment_method,
+      note: body.note,
+    })
+  }
+
+  @Post('preview')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Preview checkout totals from the basket',
+    description:
+      'Validates the basket and address the same way as placing an order, without reserving stock or creating a row. shipping_fee is currently 0.',
+  })
+  @ApiOkResponse({ type: CheckoutPreviewResponse, description: 'Checkout preview.' })
+  @ApiErrorResponses(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.UNPROCESSABLE_ENTITY
+  )
+  preview(@CurrentActor('id') userId: number, @Body() body: CreateOrderRequest) {
+    return this.previewCheckoutUseCase.execute({
       userId,
       addressId: body.address_id,
       paymentMethod: body.payment_method,

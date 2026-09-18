@@ -108,6 +108,36 @@ export class Order extends AggregateRoot {
     this.props.reservationStatus = OrderReservationStatus.Reserved
   }
 
+  /**
+   * Reopens a cancelled ONLINE order after a late gateway capture so `markPaid`
+   * can run. Caller must have re-reserved `plan` in the same transaction.
+   */
+  reviveForPayment(plan: StockAllocationPlan): void {
+    if (this.props.status !== OrderStatus.Cancelled) {
+      throw new OrderNotPayableError('Only a cancelled order can be revived for a late payment', {
+        status: this.props.status,
+      })
+    }
+
+    if (this.props.paymentMethod !== PaymentMethod.Online) {
+      throw new OrderNotPayableError('Only online orders can be revived after cancel', {
+        paymentMethod: this.props.paymentMethod,
+      })
+    }
+
+    if (this.props.reservationStatus !== OrderReservationStatus.Released) {
+      throw new OrderNotPayableError('Cancelled order stock is not released', {
+        reservationStatus: this.props.reservationStatus,
+      })
+    }
+
+    this.props.status = OrderStatus.Pending
+    this.props.cancelledAt = null
+    this.props.reservationStatus = OrderReservationStatus.None
+    this.props.stockAllocations = StockAllocationPlan.empty()
+    this.markReserved(plan)
+  }
+
   cancel(): void {
     if (this.props.status !== OrderStatus.Pending) {
       throw new OrderNotCancellableError(this.props.status)
@@ -274,7 +304,7 @@ export class Order extends AggregateRoot {
     return this.props.status === OrderStatus.Pending
   }
 
-  private static normalizeNote(note: string | null | undefined): string | null {
+  static normalizeNote(note: string | null | undefined): string | null {
     if (note === undefined || note === null) {
       return null
     }

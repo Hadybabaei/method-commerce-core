@@ -45,6 +45,25 @@ export interface CreateOrderCommand {
   note?: string | null
 }
 
+export interface CheckoutPreviewItemView {
+  variantId: number
+  quantity: number
+  unitPrice: number
+  lineTotal: number
+  product: OrderProductSnapshot
+}
+
+export interface CheckoutPreviewView {
+  address: AddressSnapshot
+  items: CheckoutPreviewItemView[]
+  itemCount: number
+  subtotal: number
+  shippingFee: number
+  total: number
+  paymentMethod: PaymentMethod
+  note: string | null
+}
+
 export interface CancelOrderCommand {
   orderId: number
   /** When set, the order must belong to this customer. */

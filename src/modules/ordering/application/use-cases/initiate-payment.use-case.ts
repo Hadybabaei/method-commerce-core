@@ -1,12 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common'
+import {
+  USER_REPOSITORY,
+  UserRepository,
+} from '@modules/identity/domain/repositories/user.repository'
 import { CLOCK, Clock } from '@shared/application/ports/clock.port'
 import { UseCase } from '@shared/application/use-case'
+import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
+import { isUniqueConstraintError } from '@shared/infrastructure/persistence/prisma/prisma-errors'
 import { Payment } from '../../domain/entities/payment.entity'
-import { PaymentStatus } from '../../domain/enums/order.enums'
 import {
   OrderNotFoundError,
   OrderNotPayableError,
-  PaymentAlreadyFailedError,
+  PaymentAlreadyInProgressError,
 } from '../../domain/errors/ordering.errors'
 import { ORDER_REPOSITORY, OrderRepository } from '../../domain/repositories/order.repository'
 import {
@@ -22,7 +27,9 @@ export class InitiatePaymentUseCase implements UseCase<InitiatePaymentCommand, P
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(PAYMENT_REPOSITORY) private readonly payments: PaymentRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
-    @Inject(CLOCK) private readonly clock: Clock
+    @Inject(USER_REPOSITORY) private readonly users: UserRepository,
+    @Inject(CLOCK) private readonly clock: Clock,
+    private readonly prisma: PrismaService
   ) {}
 
   async execute(command: InitiatePaymentCommand): Promise<PaymentView> {
@@ -47,35 +54,87 @@ export class InitiatePaymentUseCase implements UseCase<InitiatePaymentCommand, P
     }
 
     const amount = order.subtotal.amount
-    const existing = await this.payments.findByIdempotencyKey(key)
+    const payment = await this.lockAndDraftPayment(order.id, command.userId, key, amount)
 
-    if (existing) {
-      existing.ensureMatchesInitiate(order.id, amount)
-
-      if (existing.status === PaymentStatus.Failed) {
-        throw new PaymentAlreadyFailedError()
-      }
-
-      return toPaymentView(existing)
+    if (payment.hasOpenGatewaySession) {
+      return toPaymentView(payment)
     }
 
+    const user = await this.users.findById(command.userId)
     const session = await this.gateway.createPayment({
       amount,
       merchantOrderId: key,
       description: `Order ${order.number}`,
+      mobileNumber: user?.phoneNumber.value,
     })
 
-    const payment = Payment.initiate({
-      orderId: order.id,
-      idempotencyKey: key,
-      amount,
-      gatewayRef: session.gatewayRef,
-      redirectUrl: session.redirectUrl,
-      now: this.clock.now(),
-    })
-
+    payment.attachGateway(session, this.clock.now())
     const saved = await this.payments.save(payment)
     return toPaymentView(saved)
+  }
+
+  private async lockAndDraftPayment(
+    orderId: number,
+    userId: number,
+    key: string,
+    amount: number
+  ): Promise<Payment> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await this.orders.findByIdForUpdate(orderId, tx)
+      if (!locked) {
+        throw new OrderNotFoundError(orderId)
+      }
+
+      locked.ensureOwnedBy(userId)
+
+      if (!locked.canInitiatePayment) {
+        throw new OrderNotPayableError('Order cannot start an online payment', {
+          status: locked.status,
+          paymentMethod: locked.paymentMethod,
+          reservationStatus: locked.reservationStatus,
+        })
+      }
+
+      const inFlight = await this.payments.findInFlightByOrderId(orderId, tx)
+      if (inFlight && inFlight.idempotencyKey !== key) {
+        throw new PaymentAlreadyInProgressError({
+          order: orderId,
+          existingKey: inFlight.idempotencyKey,
+        })
+      }
+
+      if (inFlight && inFlight.idempotencyKey === key) {
+        inFlight.ensureMatchesInitiate(orderId, amount)
+        return inFlight
+      }
+
+      const existing = await this.payments.findByIdempotencyKey(key)
+      if (existing) {
+        existing.ensureMatchesInitiate(orderId, amount)
+        return existing
+      }
+
+      const draft = Payment.draft({
+        orderId,
+        idempotencyKey: key,
+        amount,
+        now: this.clock.now(),
+      })
+
+      try {
+        return await this.payments.save(draft, tx)
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) {
+          throw error
+        }
+        const raced = await this.payments.findByIdempotencyKey(key)
+        if (!raced) {
+          throw error
+        }
+        raced.ensureMatchesInitiate(orderId, amount)
+        return raced
+      }
+    })
   }
 }
 

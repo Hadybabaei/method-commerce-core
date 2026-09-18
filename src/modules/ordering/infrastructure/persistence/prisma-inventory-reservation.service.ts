@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { InsufficientStockForOrderError } from '../../domain/errors/ordering.errors'
+import {
+  InsufficientStockForOrderError,
+  InventoryLevelMissingError,
+} from '../../domain/errors/ordering.errors'
 import { InventoryReservationService } from '../../domain/repositories/order.repository'
 import {
   StockAllocation,
@@ -87,7 +90,7 @@ export class PrismaInventoryReservationService implements InventoryReservationSe
       const levels = await this.lockLevelsForVariant(client, row.variantId)
       const level = levels.find((entry) => entry.locationId === row.locationId)
       if (!level) {
-        continue
+        throw new InventoryLevelMissingError(row.variantId, row.locationId)
       }
 
       await client.inventory_level.update({
@@ -113,7 +116,7 @@ export class PrismaInventoryReservationService implements InventoryReservationSe
       const levels = await this.lockLevelsForVariant(client, row.variantId)
       const level = levels.find((entry) => entry.locationId === row.locationId)
       if (!level) {
-        continue
+        throw new InventoryLevelMissingError(row.variantId, row.locationId)
       }
 
       await client.inventory_level.update({

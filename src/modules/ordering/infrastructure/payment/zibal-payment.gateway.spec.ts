@@ -80,6 +80,20 @@ describe('ZibalPaymentGateway', () => {
     }
   })
 
+  it('treats a 100 verify with an amount mismatch as captured', async () => {
+    const { instance, restore } = gateway(async () =>
+      Response.json({ result: 100, amount: 9_999, refNumber: 'R-mismatch' })
+    )
+
+    try {
+      await expect(
+        instance.verifyPayment({ gatewayRef: '9900', expectedAmount: 5000 })
+      ).resolves.toMatchObject({ ok: true, paidAmount: 9_999, refNumber: 'R-mismatch' })
+    } finally {
+      restore()
+    }
+  })
+
   it('parses Zibal callback query params', () => {
     const { instance, restore } = gateway(async () => Response.json({}))
     try {

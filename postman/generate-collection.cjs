@@ -381,6 +381,14 @@ const collection = {
         bearer: [{ key: 'token', value: '{{customerAccessToken}}', type: 'string' }],
       },
       item: [
+        req('Preview checkout', 'POST', 'orders/preview', {
+          json: {
+            address_id: '{{addressId}}',
+            payment_method: 'CASH_ON_DELIVERY',
+          },
+          description:
+            'Validates the basket and address without placing the order. shippingFee is currently 0.',
+        }),
         req('Place order (COD)', 'POST', 'orders', {
           json: {
             address_id: '{{addressId}}',

@@ -19,9 +19,11 @@ import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.
 import { Order } from '../../domain/entities/order.aggregate'
 import { OrderItem } from '../../domain/entities/order-item.entity'
 import { Payment } from '../../domain/entities/payment.entity'
-import { OrderStatus, PaymentMethod } from '../../domain/enums/order.enums'
+import { OrderStatus, PaymentMethod, PaymentStatus } from '../../domain/enums/order.enums'
 import {
   InsufficientStockForOrderError,
+  InventoryLevelMissingError,
+  OrderConflictError,
   OrderNotCancellableError,
   OrderNotFoundError,
 } from '../../domain/errors/ordering.errors'
@@ -48,6 +50,8 @@ import { CancelOrderUseCase } from '../use-cases/cancel-order.use-case'
 import { CompleteOrderUseCase } from '../use-cases/complete-order.use-case'
 import { ConfirmCodPaymentUseCase } from '../use-cases/confirm-cod-payment.use-case'
 import { CreateOrderUseCase } from '../use-cases/create-order.use-case'
+import { PreviewCheckoutUseCase } from '../use-cases/preview-checkout.use-case'
+import { CheckoutAssembler } from '../services/checkout-assembler.service'
 import { OrderNotificationService } from '../order-notification.service'
 import {
   Notifications,
@@ -58,6 +62,8 @@ import { HandlePaymentCallbackUseCase } from '../use-cases/handle-payment-callba
 import { InitiatePaymentUseCase } from '../use-cases/initiate-payment.use-case'
 import { ConfigService } from '@nestjs/config'
 import { OrderPaymentTimeoutScheduler } from '../ports/order-payment-timeout.port'
+import { UserRepository } from '@modules/identity/domain/repositories/user.repository'
+import { User } from '@modules/identity/domain/entities/user.aggregate'
 
 class AsyncMutex {
   private tail: Promise<void> = Promise.resolve()
@@ -70,6 +76,60 @@ class AsyncMutex {
     )
     return run
   }
+}
+
+/** Mutex that can be held across awaits until the fake transaction releases it. */
+class HoldMutex {
+  private owner: unknown = null
+  private depth = 0
+  private readonly waiters: Array<() => void> = []
+
+  async acquire(owner: unknown): Promise<void> {
+    if (this.owner === owner) {
+      this.depth += 1
+      return
+    }
+    if (this.owner === null) {
+      this.owner = owner
+      this.depth = 1
+      return
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve))
+    this.owner = owner
+    this.depth = 1
+  }
+
+  release(): void {
+    this.depth -= 1
+    if (this.depth > 0) {
+      return
+    }
+    const next = this.waiters.shift()
+    if (next) {
+      next()
+    } else {
+      this.owner = null
+    }
+  }
+}
+
+type LockBag = { _releases?: Array<() => void> }
+
+function attachTxRelease(tx: unknown, release: () => void): void {
+  if (!tx || typeof tx !== 'object') {
+    return
+  }
+  const bag = tx as LockBag
+  if (!bag._releases) {
+    bag._releases = []
+  }
+  bag._releases.push(release)
+}
+
+function uniqueConstraintError(field: string): Error {
+  const error = new Error(`Unique constraint failed on ${field}`)
+  Object.assign(error, { code: 'P2002', meta: { target: [field] } })
+  return error
 }
 
 export class FakeClock implements Clock {
@@ -160,7 +220,10 @@ export class InMemoryInventory implements InventoryReservationService {
     for (const row of plan.allocations) {
       await this.lockFor(row.variantId).run(async () => {
         const level = this.levels.get(`${row.variantId}:${row.locationId}`)
-        if (level) level.reserved = Math.max(0, level.reserved - row.quantity)
+        if (!level) {
+          throw new InventoryLevelMissingError(row.variantId, row.locationId)
+        }
+        level.reserved = Math.max(0, level.reserved - row.quantity)
       })
     }
   }
@@ -169,7 +232,9 @@ export class InMemoryInventory implements InventoryReservationService {
     for (const row of plan.allocations) {
       await this.lockFor(row.variantId).run(async () => {
         const level = this.levels.get(`${row.variantId}:${row.locationId}`)
-        if (!level) return
+        if (!level) {
+          throw new InventoryLevelMissingError(row.variantId, row.locationId)
+        }
         level.onHand = Math.max(0, level.onHand - row.quantity)
         level.reserved = Math.max(0, level.reserved - row.quantity)
       })
@@ -189,6 +254,8 @@ export class InMemoryInventory implements InventoryReservationService {
 export class InMemoryOrderRepository implements OrderRepository {
   private nextId = 1
   readonly byId = new Map<number, Order>()
+  private readonly locks = new Map<number, HoldMutex>()
+  private readonly sequenceLock = new HoldMutex()
 
   async findById(id: number): Promise<Order | null> {
     return this.clone(this.byId.get(id) ?? null)
@@ -201,7 +268,19 @@ export class InMemoryOrderRepository implements OrderRepository {
     return null
   }
 
+  async findByIdForUpdate(id: number, tx: unknown): Promise<Order | null> {
+    const mutex = this.lockFor(id)
+    await mutex.acquire(tx)
+    attachTxRelease(tx, () => mutex.release())
+    return this.findById(id)
+  }
+
   async create(order: Order): Promise<Order> {
+    for (const existing of this.byId.values()) {
+      if (existing.number === order.number) {
+        throw uniqueConstraintError('number')
+      }
+    }
     const id = this.nextId++
     const persisted = this.rehydrate(id, order)
     this.byId.set(id, persisted)
@@ -214,7 +293,20 @@ export class InMemoryOrderRepository implements OrderRepository {
     return this.clone(persisted)!
   }
 
-  async nextDailySequence(dayKey: string): Promise<number> {
+  async saveIfStatus(order: Order, expectedStatus: OrderStatus): Promise<Order> {
+    const current = this.byId.get(order.id)
+    if (!current || current.status !== expectedStatus) {
+      throw new OrderConflictError({ order: order.id, expectedStatus })
+    }
+    return this.save(order)
+  }
+
+  async nextDailySequence(dayKey: string, tx?: unknown): Promise<number> {
+    await this.sequenceLock.acquire(tx ?? this)
+    attachTxRelease(tx, () => this.sequenceLock.release())
+    if (!tx) {
+      this.sequenceLock.release()
+    }
     const prefix = `ORD-${dayKey}-`
     let max = 0
     for (const order of this.byId.values()) {
@@ -223,6 +315,15 @@ export class InMemoryOrderRepository implements OrderRepository {
       if (Number.isFinite(parsed) && parsed > max) max = parsed
     }
     return max + 1
+  }
+
+  private lockFor(id: number): HoldMutex {
+    let mutex = this.locks.get(id)
+    if (!mutex) {
+      mutex = new HoldMutex()
+      this.locks.set(id, mutex)
+    }
+    return mutex
   }
 
   private rehydrate(id: number, order: Order): Order {
@@ -260,6 +361,7 @@ export class InMemoryOrderRepository implements OrderRepository {
 export class InMemoryPaymentRepository implements PaymentRepository {
   private nextId = 1
   private readonly byId = new Map<number, Payment>()
+  private readonly locks = new Map<number, HoldMutex>()
 
   async findById(id: number): Promise<Payment | null> {
     return this.clone(this.byId.get(id) ?? null)
@@ -279,7 +381,36 @@ export class InMemoryPaymentRepository implements PaymentRepository {
     return null
   }
 
+  async findInFlightByOrderId(orderId: number): Promise<Payment | null> {
+    let latest: Payment | null = null
+    for (const payment of this.byId.values()) {
+      if (payment.orderId !== orderId) continue
+      if (
+        payment.status !== PaymentStatus.Initiated &&
+        payment.status !== PaymentStatus.Succeeded
+      ) {
+        continue
+      }
+      if (!latest || payment.id > latest.id) latest = payment
+    }
+    return this.clone(latest)
+  }
+
+  async findByIdForUpdate(id: number, tx: unknown): Promise<Payment | null> {
+    const mutex = this.lockFor(id)
+    await mutex.acquire(tx)
+    attachTxRelease(tx, () => mutex.release())
+    return this.findById(id)
+  }
+
   async save(payment: Payment): Promise<Payment> {
+    if (payment.isNew) {
+      for (const existing of this.byId.values()) {
+        if (existing.idempotencyKey === payment.idempotencyKey) {
+          throw uniqueConstraintError('idempotencyKey')
+        }
+      }
+    }
     const id = payment.isNew ? this.nextId++ : payment.id
     const persisted = Payment.fromPersistence(id, {
       orderId: payment.orderId,
@@ -294,6 +425,15 @@ export class InMemoryPaymentRepository implements PaymentRepository {
     })
     this.byId.set(id, persisted)
     return this.clone(persisted)!
+  }
+
+  private lockFor(id: number): HoldMutex {
+    let mutex = this.locks.get(id)
+    if (!mutex) {
+      mutex = new HoldMutex()
+      this.locks.set(id, mutex)
+    }
+    return mutex
   }
 
   private clone(payment: Payment | null): Payment | null {
@@ -353,6 +493,7 @@ class InMemoryBaskets implements BasketRepository, BasketReadModel {
   private nextId = 1
   private readonly byUser = new Map<number, Basket>()
   private readonly issues = new Map<string, BasketLineView['issues']>()
+  private readonly locks = new Map<number, HoldMutex>()
 
   constructor(
     private readonly variants: Map<number, SellableVariantSnapshot>,
@@ -371,6 +512,13 @@ class InMemoryBaskets implements BasketRepository, BasketReadModel {
   async findByUserId(userId: number): Promise<Basket | null> {
     const basket = this.byUser.get(userId)
     return basket ? this.clone(basket) : null
+  }
+
+  async lockByUserId(userId: number, tx: unknown): Promise<Basket | null> {
+    const mutex = this.lockFor(userId)
+    await mutex.acquire(tx)
+    attachTxRelease(tx, () => mutex.release())
+    return this.findByUserId(userId)
   }
 
   async save(basket: Basket): Promise<Basket> {
@@ -428,6 +576,15 @@ class InMemoryBaskets implements BasketRepository, BasketReadModel {
       basket.userId,
       basket.getItems().map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
     )
+  }
+
+  private lockFor(userId: number): HoldMutex {
+    let mutex = this.locks.get(userId)
+    if (!mutex) {
+      mutex = new HoldMutex()
+      this.locks.set(userId, mutex)
+    }
+    return mutex
   }
 }
 
@@ -511,10 +668,6 @@ export class FakePaymentGateway implements PaymentGateway {
     }
 
     const paidAmount = this.paidAmountByRef.get(input.gatewayRef) ?? input.expectedAmount
-    if (paidAmount !== input.expectedAmount) {
-      return { ok: false, failureReason: 'Paid amount does not match the order', paidAmount }
-    }
-
     this.verified.add(input.gatewayRef)
     return { ok: true, refNumber: `REF-${input.gatewayRef}`, paidAmount }
   }
@@ -533,8 +686,39 @@ export class FakePaymentGateway implements PaymentGateway {
 
 function fakePrisma(): PrismaService {
   return {
-    $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({}),
+    $transaction: async <T>(
+      fn: (tx: unknown) => Promise<T>,
+      _options?: unknown
+    ): Promise<T> => {
+      const tx: LockBag = { _releases: [] }
+      try {
+        return await fn(tx)
+      } finally {
+        const releases = tx._releases ?? []
+        while (releases.length > 0) {
+          releases.pop()?.()
+        }
+      }
+    },
   } as unknown as PrismaService
+}
+
+class InMemoryUsers implements UserRepository {
+  async findById(): Promise<User | null> {
+    return null
+  }
+
+  async findByPhoneNumber(): Promise<User | null> {
+    return null
+  }
+
+  async save(user: User): Promise<User> {
+    return user
+  }
+
+  async existsByPhoneNumber(): Promise<boolean> {
+    return false
+  }
 }
 
 export const defaultAddressView = (id = 1): AddressView => ({
@@ -609,6 +793,7 @@ export interface CommerceHarness {
   variantLookup: InMemoryVariants
   gateway: FakePaymentGateway
   createOrder: CreateOrderUseCase
+  previewCheckout: PreviewCheckoutUseCase
   cancelOrder: CancelOrderUseCase
   confirmCod: ConfirmCodPaymentUseCase
   completeOrder: CompleteOrderUseCase
@@ -646,10 +831,15 @@ type ScheduledUnpaidCancel = {
  */
 export class InMemoryOrderPaymentTimeoutScheduler implements OrderPaymentTimeoutScheduler {
   readonly jobs = new Map<number, ScheduledUnpaidCancel>()
+  failNextSchedule = false
 
   constructor(private readonly nowMs: () => number) {}
 
   async scheduleCancelIfUnpaid(orderId: number, delayMs: number): Promise<void> {
+    if (this.failNextSchedule) {
+      this.failNextSchedule = false
+      throw new Error('queue unavailable')
+    }
     this.jobs.set(orderId, {
       orderId,
       delayMs,
@@ -693,6 +883,8 @@ export function createCommerceHarness(): CommerceHarness {
   const orderingConfig = orderingConfigService()
   const notifications = new RecordingNotifications()
   const orderNotifications = new OrderNotificationService(notifications)
+  const assembler = new CheckoutAssembler(addresses, asAddressReads(addresses), variantLookup)
+  const users = new InMemoryUsers()
   const cancelOrder = new CancelOrderUseCase(
     orders,
     orderReads,
@@ -714,17 +906,17 @@ export function createCommerceHarness(): CommerceHarness {
     createOrder: new CreateOrderUseCase(
       baskets,
       baskets,
-      addresses,
-      asAddressReads(addresses),
-      variantLookup,
+      assembler,
       orders,
       orderReads,
       inventory,
       paymentTimeouts,
+      cancelOrder,
       orderNotifications,
       prisma,
       orderingConfig
     ),
+    previewCheckout: new PreviewCheckoutUseCase(baskets, assembler),
     cancelOrder,
     confirmCod: new ConfirmCodPaymentUseCase(
       orders,
@@ -734,9 +926,9 @@ export function createCommerceHarness(): CommerceHarness {
       orderNotifications,
       prisma
     ),
-    completeOrder: new CompleteOrderUseCase(orders, orderReads, clock, orderNotifications),
+    completeOrder: new CompleteOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
     getOrder: new GetOrderUseCase(orderReads),
-    initiatePayment: new InitiatePaymentUseCase(orders, payments, gateway, clock),
+    initiatePayment: new InitiatePaymentUseCase(orders, payments, gateway, users, clock, prisma),
     handleCallback: new HandlePaymentCallbackUseCase(
       orders,
       payments,

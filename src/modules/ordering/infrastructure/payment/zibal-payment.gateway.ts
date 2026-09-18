@@ -110,11 +110,6 @@ export class ZibalPaymentGateway implements PaymentGateway {
       this.logger.warn(
         `Zibal amount mismatch for track ${input.gatewayRef}: expected ${input.expectedAmount}, got ${response.amount}`
       )
-      return {
-        ok: false,
-        failureReason: 'Paid amount does not match the order',
-        paidAmount: response.amount,
-      }
     }
 
     return {

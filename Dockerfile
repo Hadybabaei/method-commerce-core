@@ -13,7 +13,7 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma
 # schema reads DATABASE_URL at generate time; no live database is required
 ENV DATABASE_URL="mysql://build:build@127.0.0.1:3306/build"
-RUN npm ci
+RUN npm install --no-audit --no-fund
 
 # ---- compile Nest and generate the Prisma client ----
 FROM deps AS build

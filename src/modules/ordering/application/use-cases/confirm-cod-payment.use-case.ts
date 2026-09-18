@@ -26,20 +26,21 @@ export class ConfirmCodPaymentUseCase implements UseCase<{ orderId: number }, Or
   ) {}
 
   async execute(command: { orderId: number }): Promise<OrderView> {
-    const order = await this.orders.findById(command.orderId)
-    if (!order) {
-      throw new OrderNotFoundError(command.orderId)
-    }
-
-    const alreadyPaid = order.status === OrderStatus.Paid
-    const plan = order.stockAllocations
-    order.confirmCashOnDelivery(this.clock.now())
-
-    await this.prisma.$transaction(async (tx) => {
-      if (!alreadyPaid) {
-        await this.inventory.consume(plan, tx)
+    const { order, justPaid } = await this.prisma.$transaction(async (tx) => {
+      const locked = await this.orders.findByIdForUpdate(command.orderId, tx)
+      if (!locked) {
+        throw new OrderNotFoundError(command.orderId)
       }
-      await this.orders.save(order, tx)
+
+      if (locked.status === OrderStatus.Paid) {
+        return { order: locked, justPaid: false }
+      }
+
+      const plan = locked.stockAllocations
+      locked.confirmCashOnDelivery(this.clock.now())
+      await this.inventory.consume(plan, tx)
+      const saved = await this.orders.saveIfStatus(locked, OrderStatus.Pending, tx)
+      return { order: saved, justPaid: true }
     })
 
     const view = await this.orderReads.findById(order.id)
@@ -47,7 +48,7 @@ export class ConfirmCodPaymentUseCase implements UseCase<{ orderId: number }, Or
       throw new OrderNotFoundError(order.id)
     }
 
-    if (!alreadyPaid) {
+    if (justPaid) {
       await this.orderNotifications.paid(order)
     }
 

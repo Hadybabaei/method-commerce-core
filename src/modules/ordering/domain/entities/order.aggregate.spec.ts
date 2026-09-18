@@ -64,6 +64,58 @@ describe('Order', () => {
     expect(order.reservationStatus).toBe(OrderReservationStatus.Released)
   })
 
+  it('revives a cancelled online order so a late payment can capture', () => {
+    const item = OrderItem.create({
+      variantId: 11,
+      quantity: 2,
+      unitPrice: Money.fromMinor(1_000_000),
+      snapshot: {
+        productId: 1,
+        variantId: 11,
+        title: 'Drill',
+        slug: 'drill',
+        sku: 'DRL-1',
+        options: [],
+        image: null,
+        thumbnail: null,
+      },
+    })
+    const order = Order.create({
+      number: 'ORD-TEST-REVIVE',
+      userId: 4,
+      paymentMethod: PaymentMethod.Online,
+      items: [item],
+      addressSnapshot: address,
+    })
+    order.markReserved(StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }]))
+    order.cancel()
+
+    const plan = StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }])
+    order.reviveForPayment(plan)
+    const now = new Date('2026-09-17T12:30:00.000Z')
+    order.markPaid(now)
+
+    expect(order.status).toBe(OrderStatus.Paid)
+    expect(order.cancelledAt).toBeNull()
+    expect(order.paidAt).toEqual(now)
+    expect(order.reservationStatus).toBe(OrderReservationStatus.Consumed)
+  })
+
+  it('rejects reviving a pending or COD order', () => {
+    const pending = buildOrder()
+    pending.markReserved(StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }]))
+    expect(() =>
+      pending.reviveForPayment(StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }]))
+    ).toThrow(OrderNotPayableError)
+
+    const cod = buildOrder()
+    cod.markReserved(StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }]))
+    cod.cancel()
+    expect(() =>
+      cod.reviveForPayment(StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }]))
+    ).toThrow(OrderNotPayableError)
+  })
+
   it('rejects cancelling a non-pending order', () => {
     const order = Order.fromPersistence(1, {
       number: 'ORD-TEST-2',

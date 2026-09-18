@@ -17,6 +17,8 @@ import {
 } from './application/use-cases/get-list-orders.use-case'
 import { HandlePaymentCallbackUseCase } from './application/use-cases/handle-payment-callback.use-case'
 import { InitiatePaymentUseCase } from './application/use-cases/initiate-payment.use-case'
+import { PreviewCheckoutUseCase } from './application/use-cases/preview-checkout.use-case'
+import { CheckoutAssembler } from './application/services/checkout-assembler.service'
 import { INVENTORY_RESERVATION, ORDER_REPOSITORY } from './domain/repositories/order.repository'
 import { PAYMENT_REPOSITORY } from './domain/repositories/payment.repository'
 import { NoopOrderPaymentTimeoutScheduler } from './infrastructure/jobs/noop-order-payment-timeout.scheduler'
@@ -32,6 +34,7 @@ import { OrderNotificationService } from './application/order-notification.servi
 
 const useCases = [
   CreateOrderUseCase,
+  PreviewCheckoutUseCase,
   CancelOrderUseCase,
   ConfirmCodPaymentUseCase,
   CompleteOrderUseCase,
@@ -56,6 +59,7 @@ const useCases = [
     { provide: PAYMENT_GATEWAY, useClass: ZibalPaymentGateway },
     { provide: ORDER_PAYMENT_TIMEOUT_SCHEDULER, useClass: NoopOrderPaymentTimeoutScheduler },
     OrderNotificationService,
+    CheckoutAssembler,
     ...useCases,
   ],
   exports: [

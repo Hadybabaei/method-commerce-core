@@ -33,6 +33,26 @@ export class Payment {
     this.props = props
   }
 
+  /** Persisted before the gateway call so a crash cannot orphan a trackId. */
+  static draft(input: {
+    orderId: number
+    idempotencyKey: string
+    amount: number
+    now: Date
+  }): Payment {
+    return new Payment(UNSAVED_ID, {
+      orderId: input.orderId,
+      idempotencyKey: input.idempotencyKey,
+      gatewayRef: null,
+      amount: input.amount,
+      status: PaymentStatus.Initiated,
+      failureReason: null,
+      redirectUrl: null,
+      createdAt: input.now,
+      updatedAt: null,
+    })
+  }
+
   static initiate(input: {
     orderId: number
     idempotencyKey: string
@@ -41,17 +61,12 @@ export class Payment {
     redirectUrl: string
     now: Date
   }): Payment {
-    return new Payment(UNSAVED_ID, {
-      orderId: input.orderId,
-      idempotencyKey: input.idempotencyKey,
-      gatewayRef: input.gatewayRef,
-      amount: input.amount,
-      status: PaymentStatus.Initiated,
-      failureReason: null,
-      redirectUrl: input.redirectUrl,
-      createdAt: input.now,
-      updatedAt: null,
-    })
+    const payment = Payment.draft(input)
+    payment.attachGateway(
+      { gatewayRef: input.gatewayRef, redirectUrl: input.redirectUrl },
+      input.now
+    )
+    return payment
   }
 
   static fromPersistence(id: number, props: PaymentProps): Payment {
@@ -69,6 +84,36 @@ export class Payment {
   ensureMatchesInitiate(orderId: number, amount: number): void {
     if (this.props.orderId !== orderId || this.props.amount !== amount) {
       throw new IdempotencyConflictError()
+    }
+  }
+
+  /**
+   * True when this row already has a live gateway session the client can reuse.
+   */
+  get hasOpenGatewaySession(): boolean {
+    return (
+      this.props.status === PaymentStatus.Initiated &&
+      this.props.gatewayRef !== null &&
+      this.props.redirectUrl !== null
+    )
+  }
+
+  /**
+   * Binds (or replaces) a gateway session. Used after a draft persist and when
+   * retrying the same idempotency key after a Failed attempt.
+   */
+  attachGateway(session: { gatewayRef: string; redirectUrl: string }, now: Date): void {
+    if (this.props.status === PaymentStatus.Succeeded) {
+      throw new OrderNotPayableError('A succeeded payment cannot start another gateway session')
+    }
+
+    this.props = {
+      ...this.props,
+      status: PaymentStatus.Initiated,
+      gatewayRef: session.gatewayRef,
+      redirectUrl: session.redirectUrl,
+      failureReason: null,
+      updatedAt: now,
     }
   }
 
