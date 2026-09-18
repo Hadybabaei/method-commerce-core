@@ -6,6 +6,8 @@ import { Payment } from '../../domain/entities/payment.entity'
 import { Order } from '../../domain/entities/order.aggregate'
 import { OrderStatus, PaymentStatus } from '../../domain/enums/order.enums'
 import {
+  InsufficientStockForOrderError,
+  InventoryLevelMissingError,
   OrderNotFoundError,
   OrderNotPayableError,
   PaymentNotFoundError,
@@ -20,6 +22,7 @@ import {
   PAYMENT_REPOSITORY,
   PaymentRepository,
 } from '../../domain/repositories/payment.repository'
+import { inquiryGatewayRefs } from '../../domain/payment-inquiry'
 import { HandlePaymentCallbackCommand, OrderView } from '../dto/views'
 import {
   ORDER_PAYMENT_TIMEOUT_SCHEDULER,
@@ -30,22 +33,39 @@ import { PAYMENT_GATEWAY, PaymentGateway } from '../ports/payment-gateway.port'
 import { toPaymentView } from './initiate-payment.use-case'
 import { OrderNotificationService } from '../order-notification.service'
 
+/**
+ * `refund-required` means the money is captured but the order could not be
+ * fulfilled — operators must refund or restock.
+ */
+export type PaymentCallbackState = 'paid' | 'failed' | 'refund-required'
+
 export interface PaymentCallbackResult {
+  state: PaymentCallbackState
   payment: ReturnType<typeof toPaymentView>
   order: OrderView
 }
 
-const PAYMENT_CALLBACK_TX_TIMEOUT_MS = 20_000
+const FULFILLMENT_TX_TIMEOUT_MS = 20_000
 
 type Tx = unknown
 
+type FulfillOutcome = {
+  /** `captured` = paid by this call, `settled` = already paid before this call. */
+  state: 'captured' | 'settled' | 'refund-required'
+  payment: Payment
+}
+
 /**
  * Completes (or fails) an online payment after the provider redirects back.
- * Success always goes through `PaymentGateway.verifyPayment` so a forged
- * callback cannot mark an order paid without a verified gateway receipt.
  *
- * A late capture against a cancelled ONLINE order re-reserves stock and
- * revives the order so money already taken at the gateway is not dropped.
+ * The callback query string is unauthenticated, so `success=0` is ignored and
+ * paid vs failed is decided only by `PaymentGateway.verifyPayment`.
+ *
+ * A verified capture is committed as SUCCEEDED before any local fulfillment is
+ * attempted, and verification happens outside the fulfillment transaction. A
+ * rollback (sold-out stock, lock timeout) can therefore never lose money the
+ * gateway already took: the payment row keeps the capture and is flagged for
+ * refund, and a later callback retries fulfillment.
  */
 @Injectable()
 export class HandlePaymentCallbackUseCase implements UseCase<
@@ -75,100 +95,162 @@ export class HandlePaymentCallbackUseCase implements UseCase<
       throw new PaymentNotFoundError(parsed.gatewayRef)
     }
 
+    // Already captured: never verify again, just retry fulfillment. This is how
+    // a refund-flagged order recovers if stock becomes available later.
     if (payment.status === PaymentStatus.Succeeded) {
-      return this.replay(payment)
+      return this.settle(payment)
     }
 
-    const outcome = await this.prisma.$transaction(
-      async (tx) => {
-        const lockedPayment = await this.payments.findByIdForUpdate(payment.id, tx)
-        if (!lockedPayment) {
-          throw new PaymentNotFoundError(payment.id)
-        }
+    const verified = await this.gateway.verifyPayment({
+      gatewayRef: parsed.gatewayRef,
+      expectedAmount: payment.amount,
+    })
 
-        if (lockedPayment.status === PaymentStatus.Succeeded) {
-          return { kind: 'replay' as const, payment: lockedPayment }
-        }
+    if (!verified.ok) {
+      // A Failed retry may have issued a newer trackId. A stale fail callback
+      // for the old tab must not burn the live session.
+      if (
+        payment.status === PaymentStatus.Initiated &&
+        payment.gatewayRef !== parsed.gatewayRef
+      ) {
+        return this.view('failed', payment)
+      }
+      return this.recordFailure(payment, verified.failureReason ?? 'Gateway verification failed')
+    }
 
-        if (!parsed.reportedSuccess) {
-          lockedPayment.markFailed('Gateway reported unsuccessful checkout', this.clock.now())
-          const saved = await this.payments.save(lockedPayment, tx)
-          return { kind: 'failed' as const, payment: saved }
-        }
+    return this.settle(await this.recordCapture(payment))
+  }
 
-        if (lockedPayment.status === PaymentStatus.Failed) {
-          return { kind: 'failed' as const, payment: lockedPayment }
-        }
+  /**
+   * Worker entry: retry fulfillment for a capture, or verify the current
+   * (then at most one historical) trackId for INITIATED/FAILED rows the
+   * customer never redirected back from.
+   */
+  async inquire(payment: Payment): Promise<PaymentCallbackResult | null> {
+    if (payment.requiresRefund) {
+      return null
+    }
 
-        const order = await this.orders.findByIdForUpdate(lockedPayment.orderId, tx)
-        if (!order) {
-          throw new OrderNotFoundError(lockedPayment.orderId)
-        }
+    if (payment.status === PaymentStatus.Succeeded) {
+      return this.settle(payment)
+    }
 
-        const verified = await this.gateway.verifyPayment({
-          gatewayRef: parsed.gatewayRef,
-          expectedAmount: lockedPayment.amount,
-        })
+    if (
+      payment.status !== PaymentStatus.Initiated &&
+      payment.status !== PaymentStatus.Failed
+    ) {
+      return null
+    }
 
-        if (!verified.ok) {
-          lockedPayment.markFailed(
-            verified.failureReason ?? 'Gateway verification failed',
-            this.clock.now()
-          )
-          const saved = await this.payments.save(lockedPayment, tx)
-          return { kind: 'failed' as const, payment: saved }
-        }
+    for (const gatewayRef of inquiryGatewayRefs(payment)) {
+      const verified = await this.gateway.verifyPayment({
+        gatewayRef,
+        expectedAmount: payment.amount,
+      })
+      if (verified.ok) {
+        return this.settle(await this.recordCapture(payment))
+      }
+      // One unpaid verify is enough for this tick — do not walk every old trackId.
+      break
+    }
 
-        if (order.status === OrderStatus.Cancelled) {
-          return {
-          kind: 'paid' as const,
-          payment: await this.captureLatePayment(order, lockedPayment, tx),
-        }
+    return null
+  }
+
+  /** Commits the capture on its own so fulfillment can never roll it back. */
+  private async recordCapture(payment: Payment): Promise<Payment> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await this.payments.findByIdForUpdate(payment.id, tx)
+      if (!locked) {
+        throw new PaymentNotFoundError(payment.id)
       }
 
-      if (order.status !== OrderStatus.Pending) {
-        throw new OrderNotPayableError('Only a pending order can be paid', {
-          status: order.status,
-        })
+      if (locked.status === PaymentStatus.Succeeded) {
+        return locked
       }
 
-      return {
-        kind: 'paid' as const,
-        payment: await this.capturePendingPayment(order, lockedPayment, tx),
-      }
-      },
-      { timeout: PAYMENT_CALLBACK_TX_TIMEOUT_MS }
-    )
+      locked.markSucceeded(this.clock.now())
+      return this.payments.save(locked, tx)
+    })
+  }
 
-    if (outcome.kind === 'paid') {
-      await this.paymentTimeouts.cancelScheduled(outcome.payment.orderId)
-      const paidOrder = await this.orders.findById(outcome.payment.orderId)
+  private async recordFailure(payment: Payment, reason: string): Promise<PaymentCallbackResult> {
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const locked = await this.payments.findByIdForUpdate(payment.id, tx)
+      if (!locked) {
+        throw new PaymentNotFoundError(payment.id)
+      }
+
+      if (locked.status === PaymentStatus.Succeeded) {
+        return locked
+      }
+
+      locked.markFailed(reason, this.clock.now())
+      return this.payments.save(locked, tx)
+    })
+
+    if (saved.status === PaymentStatus.Succeeded) {
+      return this.settle(saved)
+    }
+
+    return this.view('failed', saved)
+  }
+
+  private async settle(payment: Payment): Promise<PaymentCallbackResult> {
+    const outcome = await this.fulfill(payment)
+
+    if (outcome.state === 'captured') {
+      await this.paymentTimeouts.cancelScheduled(payment.orderId)
+      const paidOrder = await this.orders.findById(payment.orderId)
       if (paidOrder) {
         await this.orderNotifications.paid(paidOrder)
       }
     }
 
-    return {
-      payment: toPaymentView(outcome.payment),
-      order: await this.requireOrderView(outcome.payment.orderId),
+    return this.view(outcome.state === 'refund-required' ? 'refund-required' : 'paid', outcome.payment)
+  }
+
+  private async fulfill(payment: Payment): Promise<FulfillOutcome> {
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const order = await this.orders.findByIdForUpdate(payment.orderId, tx)
+          if (!order) {
+            throw new OrderNotFoundError(payment.orderId)
+          }
+
+          if (order.status === OrderStatus.Paid || order.status === OrderStatus.Completed) {
+            return { state: 'settled' as const, payment: await this.clearRefundFlag(payment, tx) }
+          }
+
+          const expectedStatus = order.status
+          if (expectedStatus === OrderStatus.Cancelled) {
+            await this.reviveCancelled(order, payment, tx)
+          }
+
+          const now = this.clock.now()
+          const plan = order.stockAllocations
+          order.markPaid(now)
+          await this.inventory.consume(plan, tx)
+          await this.orders.saveIfStatus(order, expectedStatus, tx)
+
+          return { state: 'captured' as const, payment: await this.clearRefundFlag(payment, tx) }
+        },
+        { timeout: FULFILLMENT_TX_TIMEOUT_MS }
+      )
+    } catch (error) {
+      if (!isUnfulfillable(error)) {
+        throw error
+      }
+      return {
+        state: 'refund-required',
+        payment: await this.flagRefundRequired(payment, error.message),
+      }
     }
   }
 
-  private async capturePendingPayment(
-    order: Order,
-    payment: Payment,
-    tx: Tx
-  ): Promise<Payment> {
-    const now = this.clock.now()
-    const plan = order.stockAllocations
-    order.markPaid(now)
-    payment.markSucceeded(now)
-    await this.inventory.consume(plan, tx)
-    await this.orders.saveIfStatus(order, OrderStatus.Pending, tx)
-    return this.payments.save(payment, tx)
-  }
-
-  private async captureLatePayment(order: Order, payment: Payment, tx: Tx): Promise<Payment> {
+  /** Re-reserves stock and reopens an order the unpaid-cancel job closed. */
+  private async reviveCancelled(order: Order, payment: Payment, tx: Tx): Promise<void> {
     this.logger.warn(
       `Reviving cancelled order ${order.id} after verified gateway capture ${payment.gatewayRef}`
     )
@@ -178,16 +260,40 @@ export class HandlePaymentCallbackUseCase implements UseCase<
     )
     const plan = await this.inventory.reserve(lines, tx)
     order.reviveForPayment(plan)
-    const now = this.clock.now()
-    order.markPaid(now)
-    payment.markSucceeded(now)
-    await this.inventory.consume(plan, tx)
-    await this.orders.saveIfStatus(order, OrderStatus.Cancelled, tx)
+  }
+
+  private async clearRefundFlag(payment: Payment, tx: Tx): Promise<Payment> {
+    if (!payment.requiresRefund) {
+      return payment
+    }
+
+    payment.clearRefundRequirement(this.clock.now())
     return this.payments.save(payment, tx)
   }
 
-  private async replay(payment: Payment): Promise<PaymentCallbackResult> {
+  /**
+   * The capture stays SUCCEEDED; only the reason records that this order cannot
+   * be fulfilled, so operators can refund instead of the charge going silent.
+   */
+  private async flagRefundRequired(payment: Payment, reason: string): Promise<Payment> {
+    this.logger.error(
+      `Captured payment ${payment.gatewayRef} for order ${payment.orderId} cannot be fulfilled: ${reason}. Refund required.`
+    )
+
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await this.payments.findByIdForUpdate(payment.id, tx)
+      if (!locked) {
+        throw new PaymentNotFoundError(payment.id)
+      }
+
+      locked.flagRefundRequired(reason, this.clock.now())
+      return this.payments.save(locked, tx)
+    })
+  }
+
+  private async view(state: PaymentCallbackState, payment: Payment): Promise<PaymentCallbackResult> {
     return {
+      state,
       payment: toPaymentView(payment),
       order: await this.requireOrderView(payment.orderId),
     }
@@ -200,4 +306,13 @@ export class HandlePaymentCallbackUseCase implements UseCase<
     }
     return view
   }
+}
+
+/** Errors that mean "we hold the money but cannot deliver this order". */
+function isUnfulfillable(error: unknown): error is Error {
+  return (
+    error instanceof InsufficientStockForOrderError ||
+    error instanceof InventoryLevelMissingError ||
+    error instanceof OrderNotPayableError
+  )
 }

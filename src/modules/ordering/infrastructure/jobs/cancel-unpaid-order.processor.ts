@@ -1,9 +1,13 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Job } from 'bullmq'
-import { PaymentMethod } from '../../domain/enums/order.enums'
+import { PaymentMethod, PaymentStatus } from '../../domain/enums/order.enums'
 import { OrderNotCancellableError, OrderNotFoundError } from '../../domain/errors/ordering.errors'
 import { ORDER_REPOSITORY, OrderRepository } from '../../domain/repositories/order.repository'
+import {
+  PAYMENT_REPOSITORY,
+  PaymentRepository,
+} from '../../domain/repositories/payment.repository'
 import { CancelOrderUseCase } from '../../application/use-cases/cancel-order.use-case'
 import {
   CANCEL_UNPAID_ORDER_JOB,
@@ -22,6 +26,7 @@ export class CancelUnpaidOrderProcessor extends WorkerHost {
 
   constructor(
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
+    @Inject(PAYMENT_REPOSITORY) private readonly payments: PaymentRepository,
     private readonly cancelOrder: CancelOrderUseCase
   ) {
     super()
@@ -46,6 +51,12 @@ export class CancelUnpaidOrderProcessor extends WorkerHost {
 
     if (!order.canCancel) {
       this.logger.debug(`Unpaid-cancel skipped: order ${orderId} status=${order.status}`)
+      return
+    }
+
+    const captured = await this.payments.findInFlightByOrderId(orderId)
+    if (captured?.status === PaymentStatus.Succeeded) {
+      this.logger.debug(`Unpaid-cancel skipped: order ${orderId} has a captured payment`)
       return
     }
 

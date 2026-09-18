@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { UseCase } from '@shared/application/use-case'
 import { BasketNotFoundError } from '../../domain/errors/basket.errors'
-import { BASKET_REPOSITORY, BasketRepository } from '../../domain/repositories/basket.repository'
 import { BasketUserCommand, BasketView, RemoveBasketItemCommand } from '../dto/views'
 import { BASKET_READ_MODEL, BasketReadModel } from '../ports/basket-read.port'
 import { BasketWriter } from '../services/basket-writer.service'
@@ -10,15 +9,14 @@ import { BasketWriter } from '../services/basket-writer.service'
 export class RemoveBasketItemUseCase implements UseCase<RemoveBasketItemCommand, BasketView> {
   constructor(
     private readonly writer: BasketWriter,
-    @Inject(BASKET_REPOSITORY) private readonly baskets: BasketRepository,
     @Inject(BASKET_READ_MODEL) private readonly reads: BasketReadModel
   ) {}
 
   async execute(command: RemoveBasketItemCommand): Promise<BasketView> {
-    const basket = await this.writer.getOrCreate(command.userId)
-    basket.ensureOwnedBy(command.userId)
-    basket.removeItem(command.variantId)
-    await this.baskets.save(basket)
+    await this.writer.mutate(command.userId, (basket) => {
+      basket.ensureOwnedBy(command.userId)
+      basket.removeItem(command.variantId)
+    })
 
     return this.requireView(command.userId)
   }
@@ -36,15 +34,14 @@ export class RemoveBasketItemUseCase implements UseCase<RemoveBasketItemCommand,
 export class ClearBasketUseCase implements UseCase<BasketUserCommand, BasketView> {
   constructor(
     private readonly writer: BasketWriter,
-    @Inject(BASKET_REPOSITORY) private readonly baskets: BasketRepository,
     @Inject(BASKET_READ_MODEL) private readonly reads: BasketReadModel
   ) {}
 
   async execute(command: BasketUserCommand): Promise<BasketView> {
-    const basket = await this.writer.getOrCreate(command.userId)
-    basket.ensureOwnedBy(command.userId)
-    basket.clear()
-    await this.baskets.save(basket)
+    await this.writer.mutate(command.userId, (basket) => {
+      basket.ensureOwnedBy(command.userId)
+      basket.clear()
+    })
 
     return this.requireView(command.userId)
   }

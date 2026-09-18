@@ -13,6 +13,14 @@ export interface OrderItemView {
   product: OrderProductSnapshot
 }
 
+export interface OrderPaymentView {
+  id: number
+  status: string
+  requiresRefund: boolean
+  failureReason: string | null
+  gatewayRef: string | null
+}
+
 export interface OrderView {
   id: number
   number: string
@@ -24,6 +32,7 @@ export interface OrderView {
   note: string | null
   address: AddressSnapshot
   items: OrderItemView[]
+  payment: OrderPaymentView | null
   canCancel: boolean
   cancelledAt: Date | null
   paidAt: Date | null
@@ -84,9 +93,9 @@ export interface PaymentView {
   gatewayRef: string | null
   redirectUrl: string | null
   idempotencyKey: string
+  requiresRefund: boolean
+  failureReason: string | null
 }
-
-export type PaymentCallbackStatus = 'success' | 'failed'
 
 export interface HandlePaymentCallbackCommand {
   /** Raw provider callback query/body fields (e.g. Zibal trackId/success/status). */

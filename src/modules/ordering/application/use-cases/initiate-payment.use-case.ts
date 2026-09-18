@@ -56,7 +56,7 @@ export class InitiatePaymentUseCase implements UseCase<InitiatePaymentCommand, P
     const amount = order.subtotal.amount
     const payment = await this.lockAndDraftPayment(order.id, command.userId, key, amount)
 
-    if (payment.hasOpenGatewaySession) {
+    if (payment.isCaptured || payment.hasOpenGatewaySession) {
       return toPaymentView(payment)
     }
 
@@ -68,9 +68,33 @@ export class InitiatePaymentUseCase implements UseCase<InitiatePaymentCommand, P
       mobileNumber: user?.phoneNumber.value,
     })
 
-    payment.attachGateway(session, this.clock.now())
-    const saved = await this.payments.save(payment)
+    const saved = await this.attachGatewayIfAbsent(payment.id, session)
     return toPaymentView(saved)
+  }
+
+  /**
+   * First writer to attach a session wins. A overlapping retry with the same
+   * key returns that session instead of overwriting `gatewayRef`.
+   */
+  private async attachGatewayIfAbsent(
+    paymentId: number,
+    session: { gatewayRef: string; redirectUrl: string }
+  ): Promise<Payment> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await this.payments.findByIdForUpdate(paymentId, tx)
+      if (!locked) {
+        throw new OrderNotPayableError('Payment draft disappeared before gateway attach', {
+          payment: paymentId,
+        })
+      }
+
+      if (locked.isCaptured || locked.hasOpenGatewaySession) {
+        return locked
+      }
+
+      locked.attachGateway(session, this.clock.now())
+      return this.payments.save(locked, tx)
+    })
   }
 
   private async lockAndDraftPayment(
@@ -147,5 +171,7 @@ export function toPaymentView(payment: Payment): PaymentView {
     gatewayRef: payment.gatewayRef,
     redirectUrl: payment.redirectUrl,
     idempotencyKey: payment.idempotencyKey,
+    requiresRefund: payment.requiresRefund,
+    failureReason: payment.failureReason,
   }
 }

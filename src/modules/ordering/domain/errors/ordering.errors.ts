@@ -31,8 +31,13 @@ export class BasketNotReadyError extends BusinessRuleViolationError {
 }
 
 export class OrderNotCancellableError extends BusinessRuleViolationError {
-  constructor(status: string) {
-    super('Only a pending order can be cancelled', { status })
+  constructor(status: string, details: Record<string, unknown> = {}) {
+    super(
+      details.reason === 'payment_captured'
+        ? 'A captured payment cannot be cancelled'
+        : 'Only a pending order can be cancelled',
+      { status, ...details }
+    )
   }
 }
 

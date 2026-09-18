@@ -3,9 +3,18 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { ConfigService } from '@nestjs/config'
 import { Response } from 'express'
 import { AppConfig } from '@config/app.config'
-import { HandlePaymentCallbackUseCase } from '../../application/use-cases/handle-payment-callback.use-case'
+import {
+  HandlePaymentCallbackUseCase,
+  PaymentCallbackState,
+} from '../../application/use-cases/handle-payment-callback.use-case'
 import { PaymentCallbackQuery } from '../dto/payment.request'
 import { PaymentCallbackResponse } from '../dto/payment.response'
+
+const CALLBACK_QUERY_VALUE: Record<PaymentCallbackState, string> = {
+  paid: 'success',
+  failed: 'failed',
+  'refund-required': 'refund-pending',
+}
 
 @ApiTags('Payments')
 @Controller('payments')
@@ -24,7 +33,7 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Zibal payment callback',
     description:
-      'Zibal redirects the browser here after checkout. The server verifies the trackId with Zibal, then redirects the customer to the frontend order page. Replays are idempotent. Failures redirect with payment=failed instead of returning 4xx to the browser.',
+      'Zibal redirects the browser here after checkout. The server verifies the trackId with Zibal, then redirects the customer to the frontend order page. Replays are idempotent. Failures redirect with payment=failed instead of returning 4xx to the browser. A capture we cannot fulfill (stock sold meanwhile) redirects with payment=refund-pending.',
   })
   @ApiOkResponse({ type: PaymentCallbackResponse })
   async callback(@Query() query: PaymentCallbackQuery, @Res() res: Response): Promise<void> {
@@ -38,8 +47,7 @@ export class PaymentsController {
         },
       })
 
-      const paid = result.payment.status === 'SUCCEEDED'
-      const target = `${this.frontendUrl}/orders/${result.order.id}?payment=${paid ? 'success' : 'failed'}`
+      const target = `${this.frontendUrl}/orders/${result.order.id}?payment=${CALLBACK_QUERY_VALUE[result.state]}`
       res.redirect(HttpStatus.FOUND, target)
     } catch (error) {
       this.logger.warn(

@@ -26,9 +26,25 @@ export class PaymentResponse {
 
   @ApiProperty({ example: 'checkout-attempt-1' })
   idempotencyKey: string
+
+  @ApiProperty({
+    example: false,
+    description: 'True when the charge succeeded but the order could not be fulfilled.',
+  })
+  requiresRefund: boolean
+
+  @ApiProperty({ nullable: true, example: null })
+  failureReason: string | null
 }
 
 export class PaymentCallbackResponse {
+  @ApiProperty({
+    enum: ['paid', 'failed', 'refund-required'],
+    example: 'paid',
+    description: 'refund-required means the charge succeeded but the order could not be fulfilled.',
+  })
+  state: string
+
   @ApiProperty({ type: PaymentResponse })
   payment: PaymentResponse
 

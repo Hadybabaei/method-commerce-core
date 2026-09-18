@@ -17,11 +17,12 @@ import {
 } from './application/use-cases/get-list-orders.use-case'
 import { HandlePaymentCallbackUseCase } from './application/use-cases/handle-payment-callback.use-case'
 import { InitiatePaymentUseCase } from './application/use-cases/initiate-payment.use-case'
+import { InquireOpenPaymentsUseCase } from './application/use-cases/inquire-open-payments.use-case'
 import { PreviewCheckoutUseCase } from './application/use-cases/preview-checkout.use-case'
 import { CheckoutAssembler } from './application/services/checkout-assembler.service'
 import { INVENTORY_RESERVATION, ORDER_REPOSITORY } from './domain/repositories/order.repository'
 import { PAYMENT_REPOSITORY } from './domain/repositories/payment.repository'
-import { NoopOrderPaymentTimeoutScheduler } from './infrastructure/jobs/noop-order-payment-timeout.scheduler'
+import { DelegatingOrderPaymentTimeoutScheduler } from './infrastructure/jobs/delegating-order-payment-timeout.scheduler'
 import { ZibalPaymentGateway } from './infrastructure/payment/zibal-payment.gateway'
 import { PrismaInventoryReservationService } from './infrastructure/persistence/prisma-inventory-reservation.service'
 import { PrismaOrderReadModel } from './infrastructure/persistence/prisma-order-read.model'
@@ -42,11 +43,13 @@ const useCases = [
   ListOrdersUseCase,
   InitiatePaymentUseCase,
   HandlePaymentCallbackUseCase,
+  InquireOpenPaymentsUseCase,
 ]
 
 /**
  * Ordering bounded context. Unpaid-order BullMQ workers live in
- * `OrderingJobsModule` (loaded when Redis is enabled).
+ * `OrderingJobsModule` (loaded when Redis is enabled). The timeout scheduler
+ * token stays here and delegates to BullMQ when that module is present.
  */
 @Module({
   imports: [IdentityModule, BasketModule, CatalogModule, AddressingModule, NotificationsModule],
@@ -57,7 +60,7 @@ const useCases = [
     { provide: PAYMENT_REPOSITORY, useClass: PrismaPaymentRepository },
     { provide: INVENTORY_RESERVATION, useClass: PrismaInventoryReservationService },
     { provide: PAYMENT_GATEWAY, useClass: ZibalPaymentGateway },
-    { provide: ORDER_PAYMENT_TIMEOUT_SCHEDULER, useClass: NoopOrderPaymentTimeoutScheduler },
+    { provide: ORDER_PAYMENT_TIMEOUT_SCHEDULER, useClass: DelegatingOrderPaymentTimeoutScheduler },
     OrderNotificationService,
     CheckoutAssembler,
     ...useCases,
@@ -69,6 +72,8 @@ const useCases = [
     PAYMENT_GATEWAY,
     ORDER_PAYMENT_TIMEOUT_SCHEDULER,
     CancelOrderUseCase,
+    HandlePaymentCallbackUseCase,
+    InquireOpenPaymentsUseCase,
   ],
 })
 export class OrderingModule {}

@@ -14,6 +14,7 @@ function jobIdFor(orderId: number): string {
 
 @Injectable()
 export class BullmqOrderPaymentTimeoutScheduler implements OrderPaymentTimeoutScheduler {
+  readonly isOperational = true
   private readonly logger = new Logger(BullmqOrderPaymentTimeoutScheduler.name)
 
   constructor(@InjectQueue(UNPAID_ORDER_QUEUE) private readonly queue: Queue) {}

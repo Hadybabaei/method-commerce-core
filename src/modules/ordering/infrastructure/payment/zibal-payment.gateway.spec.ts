@@ -109,4 +109,17 @@ describe('ZibalPaymentGateway', () => {
       restore()
     }
   })
+
+  it('aborts hanging Zibal HTTP calls', async () => {
+    const { instance, restore } = gateway(async (_url, init) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      return Response.json({ result: 100, trackId: 1 })
+    })
+
+    try {
+      await instance.createPayment({ amount: 1000, merchantOrderId: 'x' })
+    } finally {
+      restore()
+    }
+  })
 })

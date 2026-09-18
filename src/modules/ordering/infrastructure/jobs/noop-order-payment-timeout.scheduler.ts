@@ -4,6 +4,8 @@ import { OrderPaymentTimeoutScheduler } from '../../application/ports/order-paym
 /** Used when Redis/BullMQ is disabled (tests, local without Redis). */
 @Injectable()
 export class NoopOrderPaymentTimeoutScheduler implements OrderPaymentTimeoutScheduler {
+  readonly isOperational = false
+
   async scheduleCancelIfUnpaid(): Promise<void> {
     /* no-op */
   }

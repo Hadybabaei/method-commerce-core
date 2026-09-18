@@ -23,6 +23,17 @@ import {
   defaultVariant,
   TEST_UNPAID_CANCEL_DELAY_MS,
 } from './commerce-scenarios.support'
+import { PAYMENT_INQUIRY_MAX_AGE_MS } from '../../domain/payment-inquiry'
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const started = Date.now()
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error('Timed out waiting for condition')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
 
 describe('Commerce scenarios', () => {
   const userId = 1
@@ -356,6 +367,7 @@ describe('Commerce scenarios', () => {
         idempotencyKey: 'pay-fail',
       })
 
+      h.gateway.failNextVerify = true
       await h.handleCallback.execute({
         raw: h.failCallbackRaw(payment.gatewayRef!),
       })
@@ -371,6 +383,99 @@ describe('Commerce scenarios', () => {
       expect(retry.status).toBe(PaymentStatus.Initiated)
       expect(retry.id).toBe(payment.id)
       expect(retry.gatewayRef).not.toBe(payment.gatewayRef)
+    })
+
+    it('still settles a callback on a trackId replaced after a Failed retry', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'old-track',
+      })
+      const oldRef = payment.gatewayRef!
+
+      h.gateway.failNextVerify = true
+      await h.handleCallback.execute({ raw: h.failCallbackRaw(oldRef) })
+
+      const retry = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'old-track',
+      })
+      expect(retry.gatewayRef).not.toBe(oldRef)
+
+      const result = await h.handleCallback.execute({
+        raw: h.successCallbackRaw(oldRef),
+      })
+      expect(result.state).toBe('paid')
+      expect(result.order.status).toBe(OrderStatus.Paid)
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Paid)
+    })
+
+    it('does not burn a payment from an unauthenticated success=0; verify decides', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'forged-fail',
+      })
+
+      const result = await h.handleCallback.execute({
+        raw: h.failCallbackRaw(payment.gatewayRef!),
+      })
+
+      expect(result.order.status).toBe(OrderStatus.Paid)
+      expect(result.payment.status).toBe(PaymentStatus.Succeeded)
+      expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 3, reserved: 0 })
+    })
+
+    it('pays after a failed verify if a later callback verifies', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'fail-then-pay',
+      })
+
+      h.gateway.failNextVerify = true
+      const failed = await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+      expect(failed.payment.status).toBe(PaymentStatus.Failed)
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Pending)
+
+      const paid = await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+      expect(paid.order.status).toBe(OrderStatus.Paid)
+      expect(paid.payment.status).toBe(PaymentStatus.Succeeded)
+    })
+
+    it('keeps one gatewayRef when the same Idempotency-Key overlaps createPayment', async () => {
+      const { h, order } = await onlineOrder()
+      let release!: () => void
+      h.gateway.createGate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+
+      const first = h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'same-key',
+      })
+      const second = h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'same-key',
+      })
+
+      await waitUntil(() => h.gateway.createWaiters >= 2)
+      release()
+
+      const [a, b] = await Promise.all([first, second])
+      expect(a.id).toBe(b.id)
+      expect(a.gatewayRef).toBe(b.gatewayRef)
+      expect(a.redirectUrl).toBe(b.redirectUrl)
     })
 
     it('rejects an unknown trackId and a failed gateway verify', async () => {
@@ -436,6 +541,306 @@ describe('Commerce scenarios', () => {
         OrderReservationStatus.Consumed
       )
       expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 3, reserved: 0 })
+    })
+
+    it('keeps a verified capture and flags a refund when the stock is gone', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'late-sold-out',
+      })
+      await h.cancelOrder.execute({ orderId: order.id, userId })
+      // Another customer bought the released units while this one was paying.
+      h.seedStock(variantId, 0)
+
+      const result = await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+
+      expect(result.state).toBe('refund-required')
+      expect(result.payment.status).toBe(PaymentStatus.Succeeded)
+      expect(result.order.status).toBe(OrderStatus.Cancelled)
+
+      const persisted = await h.payments.findById(payment.id)
+      expect(persisted?.status).toBe(PaymentStatus.Succeeded)
+      expect(persisted?.requiresRefund).toBe(true)
+      expect(h.notifications.sent.map((sent) => sent.type)).not.toContain('order.paid')
+      expect(result.order.payment?.requiresRefund).toBe(true)
+      expect(result.payment.requiresRefund).toBe(true)
+    })
+
+    it('fulfills a flagged capture when a later callback finds stock', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'late-restocked',
+      })
+      await h.cancelOrder.execute({ orderId: order.id, userId })
+      h.seedStock(variantId, 0)
+      await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+
+      h.seedStock(variantId, 2)
+      // A captured payment must never be verified again.
+      h.gateway.failNextVerify = true
+      const retry = await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+
+      expect(h.gateway.failNextVerify).toBe(true)
+      expect(retry.state).toBe('paid')
+      expect(retry.order.status).toBe(OrderStatus.Paid)
+      expect(retry.payment.status).toBe(PaymentStatus.Succeeded)
+      expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 0, reserved: 0 })
+
+      const persisted = await h.payments.findById(payment.id)
+      expect(persisted?.requiresRefund).toBe(false)
+    })
+
+    it('refuses cancel and a new Zibal session when the capture is already committed', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'captured-pending',
+      })
+      const row = await h.payments.findById(payment.id)
+      row!.markSucceeded(h.clock.now())
+      await h.payments.save(row!)
+
+      await expect(h.cancelOrder.execute({ orderId: order.id, userId })).rejects.toBeInstanceOf(
+        OrderNotCancellableError
+      )
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Pending)
+
+      h.gateway.createWaiters = 0
+      const again = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'captured-pending',
+      })
+      expect(again.status).toBe(PaymentStatus.Succeeded)
+      expect(h.gateway.createWaiters).toBe(0)
+
+      const view = await h.getOrder.execute({ orderId: order.id, userId })
+      expect(view.canCancel).toBe(false)
+      expect(view.payment?.status).toBe(PaymentStatus.Succeeded)
+    })
+
+    it('inquires an INITIATED session the browser never returned from', async () => {
+      const { h, order } = await onlineOrder()
+      await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'closed-tab',
+      })
+
+      await h.inquirePayments.execute()
+
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Paid)
+      expect((await h.payments.findInFlightByOrderId(order.id))?.status).toBe(
+        PaymentStatus.Succeeded
+      )
+    })
+
+    it('inquires a FAILED row after verify-not-paid when the same tab later pays', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'fail-then-closed-tab',
+      })
+
+      h.gateway.failNextVerify = true
+      await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+      expect((await h.payments.findById(payment.id))?.status).toBe(PaymentStatus.Failed)
+
+      await h.cancelOrder.execute({ orderId: order.id, userId })
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Cancelled)
+
+      await h.inquirePayments.execute()
+
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Paid)
+      expect((await h.payments.findById(payment.id))?.status).toBe(PaymentStatus.Succeeded)
+    })
+
+    it('does not inquire INITIATED payments whose order is already CANCELLED', async () => {
+      const { h, order } = await onlineOrder()
+      await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'abandoned',
+      })
+      await h.cancelOrder.execute({ orderId: order.id, userId })
+
+      h.gateway.verifyCalls.length = 0
+      await h.inquirePayments.execute()
+
+      expect(h.gateway.verifyCalls).toHaveLength(0)
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Cancelled)
+    })
+
+    it('does not inquire INITIATED payments older than 24 hours', async () => {
+      const { h, order } = await onlineOrder()
+      await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'stale-initiated',
+      })
+
+      h.clock.advanceMs(PAYMENT_INQUIRY_MAX_AGE_MS + 1)
+      h.gateway.verifyCalls.length = 0
+      await h.inquirePayments.execute()
+
+      expect(h.gateway.verifyCalls).toHaveLength(0)
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Pending)
+    })
+
+    it('skips inquiry for a capture already flagged for refund', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'refund-skip',
+      })
+      await h.cancelOrder.execute({ orderId: order.id, userId })
+      h.seedStock(variantId, 0)
+      await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+      expect((await h.payments.findById(payment.id))?.requiresRefund).toBe(true)
+
+      h.seedStock(variantId, 2)
+      h.gateway.verifyCalls.length = 0
+      await h.inquirePayments.execute()
+
+      expect(h.gateway.verifyCalls).toHaveLength(0)
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Cancelled)
+      expect((await h.payments.findById(payment.id))?.requiresRefund).toBe(true)
+    })
+
+    it('verifies only the current gatewayRef then stops on unpaid', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'cap-refs',
+      })
+      const oldRef = payment.gatewayRef!
+
+      h.gateway.failNextVerify = true
+      await h.handleCallback.execute({ raw: h.failCallbackRaw(oldRef) })
+      const retry = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'cap-refs',
+      })
+      expect(retry.gatewayRef).not.toBe(oldRef)
+
+      h.gateway.verifyCalls.length = 0
+      h.gateway.failNextVerify = true
+      await h.inquirePayments.execute()
+
+      expect(h.gateway.verifyCalls).toEqual([retry.gatewayRef])
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Pending)
+    })
+
+    it('keeps an unfulfilled SUCCEEDED capture in the inquiry batch ahead of newer INITIATED rows', async () => {
+      const { h, addressId } = readyCheckout(10, 1)
+      const capturedOrder = await h.createOrder.execute({
+        userId,
+        addressId,
+        paymentMethod: PaymentMethod.Online,
+      })
+      const captured = await h.initiatePayment.execute({
+        orderId: capturedOrder.id,
+        userId,
+        idempotencyKey: 'captured-first',
+      })
+      const row = await h.payments.findById(captured.id)
+      row!.markSucceeded(h.clock.now())
+      await h.payments.save(row!)
+
+      h.seedUserBasket(userId, [{ variantId, quantity: 1 }])
+      const newerOrder = await h.createOrder.execute({
+        userId,
+        addressId,
+        paymentMethod: PaymentMethod.Online,
+      })
+      const newer = await h.initiatePayment.execute({
+        orderId: newerOrder.id,
+        userId,
+        idempotencyKey: 'newer-initiated',
+      })
+      expect(newer.id).toBeGreaterThan(captured.id)
+
+      const listed = await h.payments.listOpenForInquiry(1)
+      expect(listed).toHaveLength(1)
+      expect(listed[0].id).toBe(captured.id)
+      expect(listed[0].status).toBe(PaymentStatus.Succeeded)
+    })
+
+    it('rejects a second Idempotency-Key after verify-not-paid marked the row FAILED', async () => {
+      const { h, order } = await onlineOrder()
+      const payment = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'fail-then-new-key',
+      })
+
+      h.gateway.failNextVerify = true
+      await h.handleCallback.execute({
+        raw: h.successCallbackRaw(payment.gatewayRef!),
+      })
+      expect((await h.payments.findById(payment.id))?.status).toBe(PaymentStatus.Failed)
+
+      await expect(
+        h.initiatePayment.execute({
+          orderId: order.id,
+          userId,
+          idempotencyKey: 'fail-then-new-key-2',
+        })
+      ).rejects.toBeInstanceOf(PaymentAlreadyInProgressError)
+
+      h.gateway.createWaiters = 0
+      const retry = await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'fail-then-new-key',
+      })
+      expect(retry.id).toBe(payment.id)
+      expect(h.gateway.createWaiters).toBe(1)
+    })
+
+    it('skips an overlapping inquiry tick while a batch is still verifying', async () => {
+      const { h, order } = await onlineOrder()
+      await h.initiatePayment.execute({
+        orderId: order.id,
+        userId,
+        idempotencyKey: 'overlap-tick',
+      })
+
+      let release!: () => void
+      h.gateway.verifyGate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+
+      const first = h.inquirePayments.execute()
+      await waitUntil(() => h.gateway.verifyWaiters === 1)
+
+      await h.inquirePayments.execute()
+      expect(h.gateway.verifyWaiters).toBe(1)
+
+      release()
+      await first
+
+      expect(h.gateway.verifyWaiters).toBe(1)
+      expect(h.orders.byId.get(order.id)?.status).toBe(OrderStatus.Paid)
     })
 
     it('rejects cancel after a successful payment', async () => {
@@ -691,6 +1096,22 @@ describe('Commerce scenarios', () => {
       expect(h.inventory.available(variantId)).toBe(5)
     })
 
+    it('refuses ONLINE checkout when payment jobs are not running', async () => {
+      const { h, addressId } = readyCheckout(5, 1)
+      h.paymentTimeouts.isOperational = false
+
+      await expect(
+        h.createOrder.execute({
+          userId,
+          addressId,
+          paymentMethod: PaymentMethod.Online,
+        })
+      ).rejects.toBeInstanceOf(OrderNotPayableError)
+
+      expect(h.orders.byId.size).toBe(0)
+      expect(h.inventory.snapshot(variantId)[0].reserved).toBe(0)
+    })
+
     it('does not consume stock twice when pay and cancel race', async () => {
       const { h, addressId } = readyCheckout(5, 2)
       const order = await h.createOrder.execute({
@@ -711,6 +1132,9 @@ describe('Commerce scenarios', () => {
 
       const statuses = results.map((r) => r.status)
       expect(statuses.filter((s) => s === 'fulfilled').length).toBeGreaterThanOrEqual(1)
+
+      // Verify returned ok, so the capture is committed whichever side wins.
+      expect((await h.payments.findById(payment.id))?.status).toBe(PaymentStatus.Succeeded)
 
       const persisted = h.orders.byId.get(order.id)!
       const level = h.inventory.snapshot(variantId)[0]

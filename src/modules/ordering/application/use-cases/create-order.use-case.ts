@@ -18,6 +18,7 @@ import {
   BasketNotReadyError,
   EmptyBasketError,
   OrderNotFoundError,
+  OrderNotPayableError,
 } from '../../domain/errors/ordering.errors'
 import { formatOrderDayKey } from '../../domain/order-number'
 import {
@@ -74,6 +75,14 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
           issues: line.issues,
         })),
       })
+    }
+
+    const paymentMethod = command.paymentMethod ?? PaymentMethod.CashOnDelivery
+    if (paymentMethod === PaymentMethod.Online && !this.paymentTimeouts.isOperational) {
+      throw new OrderNotPayableError(
+        'Online checkout is unavailable because payment jobs are not running',
+        { reason: 'jobs_disabled' }
+      )
     }
 
     const addressView = await this.assembler.requireOwnedAddress(command.userId, command.addressId)

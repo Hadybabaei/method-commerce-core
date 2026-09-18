@@ -17,6 +17,8 @@ const ZIBAL_OK = 100
 const ZIBAL_ALREADY_VERIFIED = 201
 /** Callback `status` when the user completed payment successfully. */
 const ZIBAL_STATUS_PAID = 2
+/** Abort hanging Zibal HTTP calls so a callback cannot wait forever. */
+const ZIBAL_FETCH_TIMEOUT_MS = 12_000
 
 type ZibalRequestResponse = {
   result: number
@@ -141,6 +143,7 @@ export class ZibalPaymentGateway implements PaymentGateway {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ZIBAL_FETCH_TIMEOUT_MS),
       })
     } catch (error) {
       throw new PaymentGatewayError('Failed to reach Zibal', {

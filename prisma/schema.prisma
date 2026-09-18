@@ -460,7 +460,20 @@ model payment {
   created_at DateTime  @default(now())
   updated_at DateTime? @updatedAt
 
+  tracks payment_gateway_ref[]
+
   @@index([orderId, status])
+}
+
+/// Every Zibal trackId issued for a payment, including ones replaced after a
+/// Failed retry, so a late callback on the old tab can still settle.
+model payment_gateway_ref {
+  gatewayRef String   @id
+  paymentId  Int
+  payment    payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  created_at DateTime @default(now())
+
+  @@index([paymentId])
 }
 
 // ---------------------------------------------------------------------------

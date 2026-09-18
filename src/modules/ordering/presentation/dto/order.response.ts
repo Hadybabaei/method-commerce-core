@@ -93,6 +93,23 @@ export class OrderItemResponse implements OrderItemView {
   product: OrderProductSnapshotResponse
 }
 
+export class OrderPaymentResponse {
+  @ApiProperty({ example: 1 })
+  id: number
+
+  @ApiProperty({ example: 'SUCCEEDED' })
+  status: string
+
+  @ApiProperty({ example: false })
+  requiresRefund: boolean
+
+  @ApiProperty({ nullable: true })
+  failureReason: string | null
+
+  @ApiProperty({ nullable: true })
+  gatewayRef: string | null
+}
+
 export class OrderResponse implements OrderView {
   @ApiProperty({ example: 9 })
   id: number
@@ -123,6 +140,9 @@ export class OrderResponse implements OrderView {
 
   @ApiProperty({ type: [OrderItemResponse] })
   items: OrderItemResponse[]
+
+  @ApiProperty({ type: OrderPaymentResponse, nullable: true })
+  payment: OrderPaymentResponse | null
 
   @ApiProperty({ example: true })
   canCancel: boolean

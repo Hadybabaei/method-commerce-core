@@ -3,10 +3,12 @@ import { Prisma } from '@prisma/client'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
 import { AddressSnapshot } from '../../domain/entities/order.aggregate'
 import { OrderProductSnapshot } from '../../domain/entities/order-item.entity'
-import { OrderStatus, PaymentMethod } from '../../domain/enums/order.enums'
+import { REFUND_REQUIRED_PREFIX } from '../../domain/entities/payment.entity'
+import { OrderStatus, PaymentMethod, PaymentStatus } from '../../domain/enums/order.enums'
 import {
   ListOrdersQuery,
   OrderItemView,
+  OrderPaymentView,
   OrderView,
   PaginatedOrdersView,
 } from '../../application/dto/views'
@@ -19,7 +21,7 @@ export class PrismaOrderReadModel implements OrderReadModel {
   async findById(id: number): Promise<OrderView | null> {
     const record = await this.prisma.order.findUnique({
       where: { id },
-      include: { items: { orderBy: { id: 'asc' } } },
+      include: { items: { orderBy: { id: 'asc' } }, payments: { orderBy: { id: 'desc' } } },
     })
 
     return record ? toView(record) : null
@@ -34,7 +36,7 @@ export class PrismaOrderReadModel implements OrderReadModel {
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
         where,
-        include: { items: { orderBy: { id: 'asc' } } },
+        include: { items: { orderBy: { id: 'asc' } }, payments: { orderBy: { id: 'desc' } } },
         orderBy: { created_at: 'desc' },
         take: query.limit,
         skip: query.offset,
@@ -51,7 +53,7 @@ export class PrismaOrderReadModel implements OrderReadModel {
 }
 
 type OrderRecord = Prisma.orderGetPayload<{
-  include: { items: true }
+  include: { items: true; payments: true }
 }>
 
 function toWhere(query: ListOrdersQuery): Prisma.orderWhereInput {
@@ -92,6 +94,9 @@ function toView(record: OrderRecord): OrderView {
     product: item.productSnapshot as unknown as OrderProductSnapshot,
   }))
 
+  const payment = toPaymentView(record.payments[0] ?? null)
+  const captured = payment?.status === PaymentStatus.Succeeded
+
   return {
     id: record.id,
     number: record.number,
@@ -103,10 +108,32 @@ function toView(record: OrderRecord): OrderView {
     note: record.note,
     address: record.addressSnapshot as unknown as AddressSnapshot,
     items,
-    canCancel: record.status === OrderStatus.Pending,
+    payment,
+    canCancel: record.status === OrderStatus.Pending && !captured,
     cancelledAt: record.cancelledAt,
     paidAt: record.paidAt,
     completedAt: record.completedAt,
     createdAt: record.created_at,
+  }
+}
+
+function toPaymentView(
+  record: OrderRecord['payments'][number] | null
+): OrderPaymentView | null {
+  if (!record) {
+    return null
+  }
+
+  const requiresRefund =
+    record.status === PaymentStatus.Succeeded &&
+    record.failureReason !== null &&
+    record.failureReason.startsWith(REFUND_REQUIRED_PREFIX)
+
+  return {
+    id: record.id,
+    status: record.status,
+    requiresRefund,
+    failureReason: record.failureReason,
+    gatewayRef: record.gatewayRef,
   }
 }

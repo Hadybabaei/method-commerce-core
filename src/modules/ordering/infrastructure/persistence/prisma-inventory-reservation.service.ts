@@ -32,8 +32,9 @@ export class PrismaInventoryReservationService implements InventoryReservationSe
   ): Promise<StockAllocationPlan> {
     const client = this.requireTx(tx)
     const allocations: StockAllocation[] = []
+    const ordered = [...lines].sort((a, b) => a.variantId - b.variantId)
 
-    for (const line of lines) {
+    for (const line of ordered) {
       const levels = await this.lockLevelsForVariant(client, line.variantId)
 
       let remaining = line.quantity
@@ -85,8 +86,11 @@ export class PrismaInventoryReservationService implements InventoryReservationSe
     }
 
     const client = this.requireTx(tx)
+    const ordered = [...plan.allocations].sort(
+      (a, b) => a.variantId - b.variantId || a.locationId - b.locationId
+    )
 
-    for (const row of plan.allocations) {
+    for (const row of ordered) {
       const levels = await this.lockLevelsForVariant(client, row.variantId)
       const level = levels.find((entry) => entry.locationId === row.locationId)
       if (!level) {
@@ -111,8 +115,11 @@ export class PrismaInventoryReservationService implements InventoryReservationSe
     }
 
     const client = this.requireTx(tx)
+    const ordered = [...plan.allocations].sort(
+      (a, b) => a.variantId - b.variantId || a.locationId - b.locationId
+    )
 
-    for (const row of plan.allocations) {
+    for (const row of ordered) {
       const levels = await this.lockLevelsForVariant(client, row.variantId)
       const level = levels.find((entry) => entry.locationId === row.locationId)
       if (!level) {

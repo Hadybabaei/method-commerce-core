@@ -114,6 +114,11 @@ class EnvironmentVariables {
   @IsInt()
   @IsOptional()
   ORDER_UNPAID_CANCEL_DELAY_MS = 900_000
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  ORDER_PAYMENT_INQUIRY_INTERVAL_MS = 60_000
 }
 
 export function validateEnv(raw: Record<string, unknown>): Record<string, unknown> {

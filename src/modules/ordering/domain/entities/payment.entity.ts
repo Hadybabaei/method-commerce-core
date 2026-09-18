@@ -3,13 +3,17 @@ import { PaymentStatus } from '../enums/order.enums'
 import {
   IdempotencyConflictError,
   OrderNotPayableError,
-  PaymentAlreadyFailedError,
 } from '../errors/ordering.errors'
+
+/** Marks a captured payment whose order could not be fulfilled. */
+export const REFUND_REQUIRED_PREFIX = 'REFUND_REQUIRED: '
 
 export interface PaymentProps {
   orderId: number
   idempotencyKey: string
   gatewayRef: string | null
+  /** Every trackId ever attached, including ones replaced after a Failed retry. */
+  knownGatewayRefs: string[]
   amount: number
   status: PaymentStatus
   failureReason: string | null
@@ -44,6 +48,7 @@ export class Payment {
       orderId: input.orderId,
       idempotencyKey: input.idempotencyKey,
       gatewayRef: null,
+      knownGatewayRefs: [],
       amount: input.amount,
       status: PaymentStatus.Initiated,
       failureReason: null,
@@ -70,7 +75,10 @@ export class Payment {
   }
 
   static fromPersistence(id: number, props: PaymentProps): Payment {
-    return new Payment(id, props)
+    return new Payment(id, {
+      ...props,
+      knownGatewayRefs: rememberedRefs(props.gatewayRef, props.knownGatewayRefs),
+    })
   }
 
   get isNew(): boolean {
@@ -111,6 +119,7 @@ export class Payment {
       ...this.props,
       status: PaymentStatus.Initiated,
       gatewayRef: session.gatewayRef,
+      knownGatewayRefs: rememberedRefs(session.gatewayRef, this.props.knownGatewayRefs),
       redirectUrl: session.redirectUrl,
       failureReason: null,
       updatedAt: now,
@@ -122,16 +131,53 @@ export class Payment {
       return
     }
 
-    if (this.props.status === PaymentStatus.Failed) {
-      throw new PaymentAlreadyFailedError()
-    }
-
     this.props = {
       ...this.props,
       status: PaymentStatus.Succeeded,
       failureReason: null,
       updatedAt: now,
     }
+  }
+
+  /**
+   * The money is captured but the order could not be fulfilled (stock was sold
+   * to someone else while the customer was at the gateway). Status stays
+   * SUCCEEDED so the capture is never lost; the reason carries the refund flag
+   * for operators.
+   */
+  flagRefundRequired(reason: string, now: Date): void {
+    if (this.props.status !== PaymentStatus.Succeeded) {
+      throw new OrderNotPayableError('Only a captured payment can require a refund', {
+        status: this.props.status,
+      })
+    }
+
+    this.props = {
+      ...this.props,
+      failureReason: `${REFUND_REQUIRED_PREFIX}${reason}`,
+      updatedAt: now,
+    }
+  }
+
+  /** A later retry fulfilled the order, so the refund flag no longer applies. */
+  clearRefundRequirement(now: Date): void {
+    if (!this.requiresRefund) {
+      return
+    }
+
+    this.props = {
+      ...this.props,
+      failureReason: null,
+      updatedAt: now,
+    }
+  }
+
+  get requiresRefund(): boolean {
+    return (
+      this.props.status === PaymentStatus.Succeeded &&
+      this.props.failureReason !== null &&
+      this.props.failureReason.startsWith(REFUND_REQUIRED_PREFIX)
+    )
   }
 
   markFailed(reason: string | null, now: Date): void {
@@ -163,6 +209,14 @@ export class Payment {
     return this.props.gatewayRef
   }
 
+  get knownGatewayRefs(): readonly string[] {
+    return this.props.knownGatewayRefs
+  }
+
+  get isCaptured(): boolean {
+    return this.props.status === PaymentStatus.Succeeded
+  }
+
   get amount(): number {
     return this.props.amount
   }
@@ -186,4 +240,17 @@ export class Payment {
   get updatedAt(): Date | null {
     return this.props.updatedAt
   }
+}
+
+function rememberedRefs(current: string | null, known: string[] | undefined): string[] {
+  const refs: string[] = []
+  for (const ref of known ?? []) {
+    if (ref && !refs.includes(ref)) {
+      refs.push(ref)
+    }
+  }
+  if (current && !refs.includes(current)) {
+    refs.push(current)
+  }
+  return refs
 }

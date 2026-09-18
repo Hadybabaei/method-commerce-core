@@ -60,6 +60,7 @@ import {
 import { GetOrderUseCase } from '../use-cases/get-list-orders.use-case'
 import { HandlePaymentCallbackUseCase } from '../use-cases/handle-payment-callback.use-case'
 import { InitiatePaymentUseCase } from '../use-cases/initiate-payment.use-case'
+import { InquireOpenPaymentsUseCase } from '../use-cases/inquire-open-payments.use-case'
 import { ConfigService } from '@nestjs/config'
 import { OrderPaymentTimeoutScheduler } from '../ports/order-payment-timeout.port'
 import { UserRepository } from '@modules/identity/domain/repositories/user.repository'
@@ -362,6 +363,7 @@ export class InMemoryPaymentRepository implements PaymentRepository {
   private nextId = 1
   private readonly byId = new Map<number, Payment>()
   private readonly locks = new Map<number, HoldMutex>()
+  private readonly refsByTrack = new Map<string, number>()
 
   async findById(id: number): Promise<Payment | null> {
     return this.clone(this.byId.get(id) ?? null)
@@ -375,6 +377,10 @@ export class InMemoryPaymentRepository implements PaymentRepository {
   }
 
   async findByGatewayRef(gatewayRef: string): Promise<Payment | null> {
+    const id = this.refsByTrack.get(gatewayRef)
+    if (id !== undefined) {
+      return this.findById(id)
+    }
     for (const payment of this.byId.values()) {
       if (payment.gatewayRef === gatewayRef) return this.clone(payment)
     }
@@ -387,6 +393,7 @@ export class InMemoryPaymentRepository implements PaymentRepository {
       if (payment.orderId !== orderId) continue
       if (
         payment.status !== PaymentStatus.Initiated &&
+        payment.status !== PaymentStatus.Failed &&
         payment.status !== PaymentStatus.Succeeded
       ) {
         continue
@@ -403,6 +410,29 @@ export class InMemoryPaymentRepository implements PaymentRepository {
     return this.findById(id)
   }
 
+  async listOpenForInquiry(limit = 50): Promise<Payment[]> {
+    const captured: Payment[] = []
+    const sessions: Payment[] = []
+    for (const payment of this.byId.values()) {
+      if (payment.requiresRefund) {
+        continue
+      }
+      if (payment.status === PaymentStatus.Succeeded) {
+        captured.push(this.clone(payment)!)
+        continue
+      }
+      if (
+        (payment.status === PaymentStatus.Initiated || payment.status === PaymentStatus.Failed) &&
+        payment.gatewayRef
+      ) {
+        sessions.push(this.clone(payment)!)
+      }
+    }
+    captured.sort((a, b) => a.id - b.id)
+    sessions.sort((a, b) => b.id - a.id)
+    return [...captured, ...sessions].slice(0, limit)
+  }
+
   async save(payment: Payment): Promise<Payment> {
     if (payment.isNew) {
       for (const existing of this.byId.values()) {
@@ -412,18 +442,11 @@ export class InMemoryPaymentRepository implements PaymentRepository {
       }
     }
     const id = payment.isNew ? this.nextId++ : payment.id
-    const persisted = Payment.fromPersistence(id, {
-      orderId: payment.orderId,
-      idempotencyKey: payment.idempotencyKey,
-      gatewayRef: payment.gatewayRef,
-      amount: payment.amount,
-      status: payment.status,
-      failureReason: payment.failureReason,
-      redirectUrl: payment.redirectUrl,
-      createdAt: payment.createdAt,
-      updatedAt: payment.updatedAt,
-    })
+    const persisted = this.persist(id, payment)
     this.byId.set(id, persisted)
+    for (const ref of persisted.knownGatewayRefs) {
+      this.refsByTrack.set(ref, id)
+    }
     return this.clone(persisted)!
   }
 
@@ -437,11 +460,15 @@ export class InMemoryPaymentRepository implements PaymentRepository {
   }
 
   private clone(payment: Payment | null): Payment | null {
-    if (!payment) return null
-    return Payment.fromPersistence(payment.id, {
+    return payment ? this.persist(payment.id, payment) : null
+  }
+
+  private persist(id: number, payment: Payment): Payment {
+    return Payment.fromPersistence(id, {
       orderId: payment.orderId,
       idempotencyKey: payment.idempotencyKey,
       gatewayRef: payment.gatewayRef,
+      knownGatewayRefs: [...payment.knownGatewayRefs],
       amount: payment.amount,
       status: payment.status,
       failureReason: payment.failureReason,
@@ -453,11 +480,16 @@ export class InMemoryPaymentRepository implements PaymentRepository {
 }
 
 class InMemoryOrderReads implements OrderReadModel {
-  constructor(private readonly orders: InMemoryOrderRepository) {}
+  constructor(
+    private readonly orders: InMemoryOrderRepository,
+    private readonly payments: InMemoryPaymentRepository
+  ) {}
 
   async findById(id: number): Promise<OrderView | null> {
     const order = await this.orders.findById(id)
     if (!order) return null
+    const payment = await this.payments.findInFlightByOrderId(order.id)
+    const captured = payment?.status === PaymentStatus.Succeeded
     return {
       id: order.id,
       number: order.number,
@@ -476,7 +508,16 @@ class InMemoryOrderReads implements OrderReadModel {
         lineTotal: item.lineTotal.amount,
         product: item.productSnapshot,
       })),
-      canCancel: order.status === OrderStatus.Pending,
+      payment: payment
+        ? {
+            id: payment.id,
+            status: payment.status,
+            requiresRefund: payment.requiresRefund,
+            failureReason: payment.failureReason,
+            gatewayRef: payment.gatewayRef,
+          }
+        : null,
+      canCancel: order.status === OrderStatus.Pending && !captured,
       cancelledAt: order.cancelledAt,
       paidAt: order.paidAt,
       completedAt: order.completedAt,
@@ -648,8 +689,20 @@ export class FakePaymentGateway implements PaymentGateway {
   failNextVerify = false
   /** Amount overrides keyed by trackId for mismatch tests. */
   paidAmountByRef = new Map<string, number>()
+  /** When set, createPayment waits so overlapping same-key retries can race. */
+  createGate: Promise<void> | null = null
+  createWaiters = 0
+  /** When set, verifyPayment waits so overlapping inquiry ticks can race. */
+  verifyGate: Promise<void> | null = null
+  verifyWaiters = 0
+  /** TrackIds passed to verifyPayment, in call order. */
+  readonly verifyCalls: string[] = []
 
   async createPayment(input: CreateGatewayPaymentInput): Promise<CreateGatewayPaymentResult> {
+    this.createWaiters += 1
+    if (this.createGate) {
+      await this.createGate
+    }
     const gatewayRef = String(this.nextTrack++)
     return {
       gatewayRef,
@@ -658,6 +711,11 @@ export class FakePaymentGateway implements PaymentGateway {
   }
 
   async verifyPayment(input: VerifyGatewayPaymentInput): Promise<VerifyGatewayPaymentResult> {
+    this.verifyCalls.push(input.gatewayRef)
+    this.verifyWaiters += 1
+    if (this.verifyGate) {
+      await this.verifyGate
+    }
     if (this.failNextVerify) {
       this.failNextVerify = false
       return { ok: false, failureReason: 'declined' }
@@ -800,6 +858,7 @@ export interface CommerceHarness {
   getOrder: GetOrderUseCase
   initiatePayment: InitiatePaymentUseCase
   handleCallback: HandlePaymentCallbackUseCase
+  inquirePayments: InquireOpenPaymentsUseCase
   notifications: RecordingNotifications
   paymentTimeouts: InMemoryOrderPaymentTimeoutScheduler
   /** Drain BullMQ-equivalent jobs whose delay has elapsed on the fake clock. */
@@ -832,6 +891,7 @@ type ScheduledUnpaidCancel = {
 export class InMemoryOrderPaymentTimeoutScheduler implements OrderPaymentTimeoutScheduler {
   readonly jobs = new Map<number, ScheduledUnpaidCancel>()
   failNextSchedule = false
+  isOperational = true
 
   constructor(private readonly nowMs: () => number) {}
 
@@ -876,7 +936,7 @@ export function createCommerceHarness(): CommerceHarness {
   const addresses = new InMemoryAddresses()
   const orders = new InMemoryOrderRepository()
   const payments = new InMemoryPaymentRepository()
-  const orderReads = new InMemoryOrderReads(orders)
+  const orderReads = new InMemoryOrderReads(orders, payments)
   const prisma = fakePrisma()
   const gateway = new FakePaymentGateway()
   const paymentTimeouts = new InMemoryOrderPaymentTimeoutScheduler(() => clock.now().getTime())
@@ -889,9 +949,21 @@ export function createCommerceHarness(): CommerceHarness {
     orders,
     orderReads,
     inventory,
+    payments,
     paymentTimeouts,
     orderNotifications,
     prisma
+  )
+  const handleCallback = new HandlePaymentCallbackUseCase(
+    orders,
+    payments,
+    orderReads,
+    inventory,
+    gateway,
+    paymentTimeouts,
+    clock,
+    prisma,
+    orderNotifications
   )
 
   return {
@@ -929,17 +1001,8 @@ export function createCommerceHarness(): CommerceHarness {
     completeOrder: new CompleteOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
     getOrder: new GetOrderUseCase(orderReads),
     initiatePayment: new InitiatePaymentUseCase(orders, payments, gateway, users, clock, prisma),
-    handleCallback: new HandlePaymentCallbackUseCase(
-      orders,
-      payments,
-      orderReads,
-      inventory,
-      gateway,
-      paymentTimeouts,
-      clock,
-      prisma,
-      orderNotifications
-    ),
+    handleCallback,
+    inquirePayments: new InquireOpenPaymentsUseCase(payments, orders, clock, handleCallback),
     notifications,
     paymentTimeouts,
     runDueUnpaidCancels: async () => {
@@ -947,6 +1010,10 @@ export function createCommerceHarness(): CommerceHarness {
         await paymentTimeouts.cancelScheduled(job.orderId)
         const order = await orders.findById(job.orderId)
         if (!order || order.paymentMethod !== PaymentMethod.Online || !order.canCancel) {
+          continue
+        }
+        const captured = await payments.findInFlightByOrderId(job.orderId)
+        if (captured?.status === PaymentStatus.Succeeded) {
           continue
         }
         try {

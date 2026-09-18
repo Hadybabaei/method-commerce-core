@@ -1,14 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { UseCase } from '@shared/application/use-case'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
-import { OrderStatus } from '../../domain/enums/order.enums'
-import { OrderNotFoundError } from '../../domain/errors/ordering.errors'
+import { OrderStatus, PaymentStatus } from '../../domain/enums/order.enums'
+import { OrderNotCancellableError, OrderNotFoundError } from '../../domain/errors/ordering.errors'
 import {
   INVENTORY_RESERVATION,
   InventoryReservationService,
   ORDER_REPOSITORY,
   OrderRepository,
 } from '../../domain/repositories/order.repository'
+import {
+  PAYMENT_REPOSITORY,
+  PaymentRepository,
+} from '../../domain/repositories/payment.repository'
 import { CancelOrderCommand, OrderView } from '../dto/views'
 import {
   ORDER_PAYMENT_TIMEOUT_SCHEDULER,
@@ -23,6 +27,7 @@ export class CancelOrderUseCase implements UseCase<CancelOrderCommand, OrderView
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(ORDER_READ_MODEL) private readonly orderReads: OrderReadModel,
     @Inject(INVENTORY_RESERVATION) private readonly inventory: InventoryReservationService,
+    @Inject(PAYMENT_REPOSITORY) private readonly payments: PaymentRepository,
     @Inject(ORDER_PAYMENT_TIMEOUT_SCHEDULER)
     private readonly paymentTimeouts: OrderPaymentTimeoutScheduler,
     private readonly orderNotifications: OrderNotificationService,
@@ -38,6 +43,11 @@ export class CancelOrderUseCase implements UseCase<CancelOrderCommand, OrderView
 
       if (command.userId !== undefined) {
         order.ensureOwnedBy(command.userId)
+      }
+
+      const captured = await this.payments.findInFlightByOrderId(order.id, tx)
+      if (captured?.status === PaymentStatus.Succeeded) {
+        throw new OrderNotCancellableError(order.status, { reason: 'payment_captured' })
       }
 
       const plan = order.stockAllocations

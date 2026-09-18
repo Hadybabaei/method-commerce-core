@@ -14,7 +14,7 @@ import { CommentsModule } from '@modules/comments/comments.module'
 import { FavoritesModule } from '@modules/favorites/favorites.module'
 import { OrderingModule } from '@modules/ordering/ordering.module'
 import { NotificationsModule } from '@modules/notifications/notifications.module'
-import { isOrderingJobsEnabled } from '@modules/ordering/ordering-jobs.enabled'
+import { isOrderingJobsEnabled, assertProductionOrderingJobs } from '@modules/ordering/ordering-jobs.enabled'
 import { IdentityModule } from '@modules/identity/identity.module'
 import { LoggingModule } from '@shared/infrastructure/logging/logging.module'
 import { PrismaModule } from '@shared/infrastructure/persistence/prisma/prisma.module'
@@ -32,6 +32,7 @@ if (isOrderingJobsEnabled()) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   optionalModules.push(require('./modules/ordering/ordering-jobs.module').OrderingJobsModule)
 }
+assertProductionOrderingJobs()
 
 @Module({
   imports: [
