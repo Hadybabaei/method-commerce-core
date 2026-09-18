@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+logs
+uploads
+.git
+.github
+.idea
+.vscode
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+postman
+*.md
+.DS_Store

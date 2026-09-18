@@ -1,0 +1,559 @@
+// method-commerce API - Prisma schema.
+//
+// Table and column names intentionally mirror the legacy method-commerce database so this
+// service can run against the same MySQL instance. Only the slice of the schema
+// owned by the identity and addressing modules lives here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  HOQOOQI
+  HAGHIGHI
+  NORMAL
+}
+
+model user {
+  id             Int       @id @default(autoincrement())
+  phone_number   String    @unique
+  auth_level     Int       @default(0)
+  email          String?
+  refresh_token  String?   @db.Text
+  otp_code       String?
+  otp_expiry     DateTime?
+  account_status Boolean?
+  type           UserType  @default(NORMAL)
+  avatar         String?
+  role           String    @default("user")
+  created_at     DateTime  @default(now())
+  updated_at     DateTime? @updatedAt
+
+  profile       user_profile?
+  userAddresses user_address[]
+  favorites     user_favorite[]
+  comments      comment[]
+  basket        basket?
+  orders        order[]
+  notifications notification[]
+
+  @@index(fields: [id, phone_number])
+}
+
+model user_profile {
+  id               Int      @id @default(autoincrement())
+  first_name       String?
+  last_name        String?
+  father_name      String?
+  national_id      String?
+  birth_date       String?
+  register_code    Int?
+  business_role_id Int?
+  company_name     String?
+  phone            String?
+  role_id          Int?
+  tax_id           Int?
+  userId           Int?     @unique
+  user             user?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  created_at       DateTime @default(now())
+}
+
+model admin {
+  id                   Int       @id @default(autoincrement())
+  email                String    @unique
+  password             String
+  role                 String    @default("operator")
+  status               Boolean   @default(true)
+  first_name           String?
+  last_name            String?
+  nationalId           String?
+  address              String?
+  avatarUrl            String?
+  reset_password_token String?
+  reset_token_expire   DateTime?
+  phone_number         String?
+  created_at           DateTime  @default(now())
+
+  comments      comment[]
+  notifications notification[]
+}
+
+model province {
+  id          Int            @id @default(autoincrement())
+  name        String
+  slug        String
+  tel_prefix  String
+  cities      city[]
+  userAddress user_address[]
+}
+
+model city {
+  id          Int            @id @default(autoincrement())
+  name        String
+  slug        String
+  province_id Int
+  province    province       @relation(fields: [province_id], references: [id], onDelete: Cascade)
+  userAddress user_address[]
+}
+
+model user_address {
+  id                  Int      @id @default(autoincrement())
+  title               String
+  userId              Int
+  user                user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  province_id         Int
+  province            province @relation(fields: [province_id], references: [id], onDelete: Cascade)
+  city_id             Int
+  city                city     @relation(fields: [city_id], references: [id], onDelete: Cascade)
+  hood                String
+  lat                 Float?
+  long                Float?
+  postalCode          String
+  pelak               String
+  vahed               String?
+  details             String   @db.Text
+  ownReceiver         Boolean
+  receiverFullName    String?
+  receiverPhoneNumber String?
+
+  @@index(fields: [userId])
+}
+
+// ---------------------------------------------------------------------------
+// Catalog
+//
+// `category`, `brand` and `product` keep the legacy column names so existing
+// rows can be migrated across as they are. The variant side is a redesign and
+// is NOT compatible with the legacy `product_variant` table: variants are now
+// defined by their option values rather than by a colour and a warehouse, and
+// stock moved out of the catalog into `inventory_level`.
+// ---------------------------------------------------------------------------
+
+model category {
+  id          Int     @id @default(autoincrement())
+  title       String
+  slug        String  @unique
+  icon        String?
+  description String? @db.Text
+
+  parentId Int?
+  parent   category?  @relation("CategorySelfRef", fields: [parentId], references: [id])
+  children category[] @relation("CategorySelfRef")
+
+  /// Materialized path of ancestor ids, e.g. "/1/7/12/". Lets a subtree be
+  /// fetched with one indexed prefix match instead of a query per level.
+  path     String @db.VarChar(255)
+  /// Number of ancestors; a root category is 0.
+  depth    Int    @default(0)
+  /// Sort order among siblings.
+  position Int    @default(0)
+
+  products   product[]
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  @@index([path])
+  @@index([parentId, position])
+}
+
+model brand {
+  id          Int     @id @default(autoincrement())
+  title       String
+  slug        String  @unique
+  logo        String?
+  description String? @db.Text
+
+  products   product[]
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+}
+
+model product {
+  id                Int     @id @default(autoincrement())
+  title             String
+  sub_title         String?
+  slug              String  @unique
+  description       String? @db.Text
+  short_description String? @db.Text
+  publish           Boolean @default(true)
+  weightGrams       Int     @default(500)
+
+  categoryId Int?
+  category   category? @relation(fields: [categoryId], references: [id])
+  brandId    Int?
+  brand      brand?    @relation(fields: [brandId], references: [id])
+
+  images    product_image[]
+  options   product_option[]
+  variants  product_variant[]
+  favorites user_favorite[]
+  comments  comment[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([categoryId, publish])
+  @@index([brandId, publish])
+}
+
+/// A customer's saved product. Legacy favourites pointed at a variant; here the
+/// unit is the product, because variants are not yet a customer-facing concept
+/// and a wishlist is usually about the item, not a specific option combo.
+model user_favorite {
+  id        Int @id @default(autoincrement())
+  userId    Int
+  productId Int
+
+  user    user    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  created_at DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId, created_at])
+}
+
+model product_image {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  product   product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String  @db.Text
+  thumbnail Boolean @default(false)
+  position  Int     @default(0)
+
+  @@index([productId, position])
+}
+
+/// An axis a product varies on: colour, size, capacity. Declared per product so
+/// every variant carries exactly one value for each of them.
+model product_option {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  product   product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  position  Int     @default(0)
+
+  values product_option_value[]
+
+  @@unique([productId, name])
+}
+
+model product_option_value {
+  id       Int            @id @default(autoincrement())
+  optionId Int
+  option   product_option @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  value    String
+  position Int            @default(0)
+
+  variants variant_option_value[]
+
+  @@unique([optionId, value])
+}
+
+/// A sellable unit. Its option values are the natural key; `option_signature`
+/// is their normalized form so the database can reject a duplicate combination
+/// that a join table alone could not.
+model product_variant {
+  id               Int     @id @default(autoincrement())
+  productId        Int
+  product          product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku              String  @unique
+  option_signature String  @db.VarChar(255)
+
+  /// Smallest currency unit. Never a float.
+  price      Int
+  /// Set only while the variant is genuinely on sale; always below `price`.
+  sale_price Int?
+
+  weightGrams Int?
+  image       String? @db.Text
+  is_active   Boolean @default(true)
+
+  optionValues variant_option_value[]
+  inventory    inventory_level[]
+  basketItems  basket_item[]
+  orderItems   order_item[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([productId, option_signature])
+  @@index([productId, is_active])
+}
+
+model variant_option_value {
+  variantId     Int
+  variant       product_variant      @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  optionValueId Int
+  optionValue   product_option_value @relation(fields: [optionValueId], references: [id], onDelete: Cascade)
+
+  @@id([variantId, optionValueId])
+  @@index([optionValueId])
+}
+
+/// A warehouse or shop. Replaces the legacy `stock` table, which was part of a
+/// variant's identity instead of being a place a variant is stored.
+model inventory_location {
+  id        Int     @id @default(autoincrement())
+  name      String
+  code      String  @unique
+  is_active Boolean @default(true)
+
+  levels inventory_level[]
+}
+
+/// How much of one variant sits in one location. `reserved` is held for orders
+/// that are placed but not yet fulfilled, so availability is on_hand - reserved.
+model inventory_level {
+  variantId  Int
+  variant    product_variant    @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  locationId Int
+  location   inventory_location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  on_hand    Int                @default(0)
+  reserved   Int                @default(0)
+
+  updated_at DateTime @updatedAt
+
+  @@id([variantId, locationId])
+  @@index([locationId])
+}
+
+// ---------------------------------------------------------------------------
+// Basket
+//
+// One open cart per customer. Lines point at variants (the sellable unit), so
+// checkout can copy them into an order without re-resolving options. Stock is
+// checked when quantities change; reservation happens later at order time.
+// ---------------------------------------------------------------------------
+
+model basket {
+  id     Int @id @default(autoincrement())
+  userId Int @unique
+  user   user @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  items basket_item[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model basket_item {
+  basketId  Int
+  basket    basket          @relation(fields: [basketId], references: [id], onDelete: Cascade)
+  variantId Int
+  variant   product_variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity  Int
+
+  @@id([basketId, variantId])
+  @@index([variantId])
+}
+
+// ---------------------------------------------------------------------------
+// Orders
+//
+// Cut from the customer's basket at checkout. Line prices and product details
+// are snapshotted so later catalog edits do not rewrite history. Stock is
+// reserved on create (`inventory_level.reserved`), released on cancel, and
+// consumed (on_hand + reserved down) when an online payment succeeds.
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  COMPLETED
+}
+
+enum OrderReservationStatus {
+  NONE
+  RESERVED
+  RELEASED
+  CONSUMED
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  ONLINE
+}
+
+enum PaymentStatus {
+  INITIATED
+  SUCCEEDED
+  FAILED
+}
+
+model order {
+  id     Int  @id @default(autoincrement())
+  /// Human-facing code, e.g. ORD-20260911-00042.
+  number String @unique
+
+  userId Int
+  user   user @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  status            OrderStatus            @default(PENDING)
+  reservationStatus OrderReservationStatus @default(NONE)
+  paymentMethod     PaymentMethod          @default(CASH_ON_DELIVERY)
+
+  itemCount Int
+  /// Sum of line totals at checkout, in Rial.
+  subtotal  Int
+
+  /// Frozen copy of the delivery address at checkout time.
+  addressSnapshot Json
+  note            String? @db.Text
+
+  /// Per-location stock holds so cancel can release exactly what was reserved.
+  stockAllocations Json?
+
+  items    order_item[]
+  payments payment[]
+
+  cancelledAt DateTime?
+  paidAt      DateTime?
+  completedAt DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  @@index([userId, created_at])
+  @@index([status, created_at])
+  @@index([created_at])
+}
+
+model order_item {
+  id      Int   @id @default(autoincrement())
+  orderId Int
+  order   order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// Kept for reporting; null if the catalog variant is later deleted.
+  variantId Int?
+  variant   product_variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  quantity  Int
+  unitPrice Int
+  lineTotal Int
+
+  /// Immutable product/variant display payload from checkout.
+  productSnapshot Json
+
+  @@index([orderId])
+  @@index([variantId])
+}
+
+/// One online payment attempt. Client `idempotencyKey` is unique so retries
+/// return the same intent; gateway callbacks are matched by `gatewayRef`.
+model payment {
+  id             Int           @id @default(autoincrement())
+  orderId        Int
+  order          order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  idempotencyKey String        @unique
+  gatewayRef     String?       @unique
+  amount         Int
+  status         PaymentStatus @default(INITIATED)
+  failureReason  String?
+  redirectUrl    String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime? @updatedAt
+
+  @@index([orderId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Comments
+//
+// Product discussion with one level of replies. Customer posts stay hidden
+// until an admin approves them (`published = false` by default). Admin posts
+// and replies go live immediately. Images live in `comment_image` and on disk
+// under uploads/comments/.
+// ---------------------------------------------------------------------------
+
+model comment {
+  id        Int     @id @default(autoincrement())
+  title     String?
+  content   String  @db.Text
+  /// Optional 1–5 product rating. Only meaningful on root comments.
+  rate      Int?
+  published Boolean @default(false)
+
+  productId Int
+  product   product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// Exactly one of userId / adminId is set — who wrote the comment.
+  userId Int?
+  user   user? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminId Int?
+  admin   admin? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  parentId Int?
+  parent   comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  comment[] @relation("CommentReplies")
+
+  images comment_image[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([productId, published, created_at])
+  @@index([userId, created_at])
+  @@index([parentId])
+  @@index([published, created_at])
+}
+
+model comment_image {
+  id        Int     @id @default(autoincrement())
+  commentId Int
+  comment   comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  url       String  @db.Text
+  position  Int     @default(0)
+
+  created_at DateTime @default(now())
+
+  @@index([commentId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+//
+// In-app inbox for customers and admins. Other bounded contexts call
+// `Notifications.sendNotification` with a context + type; this module fans
+// out to recipients (a user, an admin, or every active admin).
+// ---------------------------------------------------------------------------
+
+enum NotificationAudience {
+  USER
+  ADMIN
+}
+
+model notification {
+  id Int @id @default(autoincrement())
+
+  audience    NotificationAudience
+  /// user.id when audience is USER; admin.id when audience is ADMIN.
+  recipientId Int
+
+  /// Bounded context that produced the event, e.g. `ordering`.
+  context String @db.VarChar(40)
+  /// Event within that context, e.g. `order.created`.
+  type    String @db.VarChar(80)
+
+  title String
+  body  String @db.Text
+  data  Json?
+
+  userId  Int?
+  user    user?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminId Int?
+  admin   admin? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  readAt     DateTime?
+  created_at DateTime  @default(now())
+
+  @@index([audience, recipientId, created_at])
+  @@index([audience, recipientId, readAt])
+  @@index([context, type])
+}

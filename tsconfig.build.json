@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src"
+  },
+  // `prisma/seed.ts` is run through ts-node, never bundled. Excluding it keeps
+  // the compiler root at `src`, so the entry point stays `dist/main.js`.
+  "exclude": ["node_modules", "test", "dist", "prisma", "**/*spec.ts"]
+}
