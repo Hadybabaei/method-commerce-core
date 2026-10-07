@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { UploadConfig } from '@config/upload.config'
+import { ImageOptimizerOptions, optimizeImage } from './image-optimizer'
 import { InvalidInputError } from '@shared/domain/errors'
 import { ImageUploader } from '@shared/application/ports/image-uploader.port'
 import {
@@ -14,6 +15,7 @@ export class ConfiguredImageUploader implements ImageUploader {
   private readonly maxBytes: number
   private readonly maxCount: number
   private readonly allowedMimeTypes: ReadonlySet<string>
+  private readonly optimizer: ImageOptimizerOptions
 
   constructor(
     configService: ConfigService,
@@ -23,6 +25,7 @@ export class ConfiguredImageUploader implements ImageUploader {
     this.maxBytes = upload.maxImageBytes
     this.maxCount = upload.maxImagesPerComment
     this.allowedMimeTypes = new Set(upload.allowedImageMimeTypes)
+    this.optimizer = { maxDimension: upload.maxImageDimension, quality: upload.webpQuality }
   }
 
   async uploadImages(
@@ -58,12 +61,13 @@ export class ConfiguredImageUploader implements ImageUploader {
     const stored: StoredObject[] = []
     try {
       for (const file of files) {
+        const optimized = await optimizeImage(file, this.optimizer)
         stored.push(
           await this.storage.store({
-            buffer: file.buffer,
-            mimeType: file.mimeType,
+            buffer: optimized.buffer,
+            mimeType: optimized.mimeType,
             folder,
-            originalName: file.originalName,
+            originalName: optimized.originalName,
           })
         )
       }

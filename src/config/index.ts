@@ -7,6 +7,7 @@ import { otpConfig } from './otp.config'
 import { paymentConfig } from './payment.config'
 import { redisConfig } from './redis.config'
 import { smsConfig } from './sms.config'
+import { storageConfig } from './storage.config'
 import { uploadConfig } from './upload.config'
 
 export const configurations = [
@@ -19,6 +20,7 @@ export const configurations = [
   paymentConfig,
   redisConfig,
   smsConfig,
+  storageConfig,
   uploadConfig,
 ]
 
@@ -32,4 +34,5 @@ export * from './otp.config'
 export * from './payment.config'
 export * from './redis.config'
 export * from './sms.config'
+export * from './storage.config'
 export * from './upload.config'
