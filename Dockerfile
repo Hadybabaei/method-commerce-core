@@ -20,6 +20,7 @@ FROM deps AS build
 COPY nest-cli.json tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npx prisma generate && npm run build \
+  && npx tsc -p prisma/tsconfig.json --outDir dist/prisma \
   && npm prune --omit=dev \
   && npm install prisma@6.19.3 --omit=dev --no-save --ignore-scripts
 
@@ -41,8 +42,8 @@ COPY --from=build --chown=nestjs:nodejs /app/package.json ./
 USER nestjs
 EXPOSE 4000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=6 \
   CMD node -e "const p=process.env.PORT||4000; const a=process.env.API_PREFIX||'api'; fetch('http://127.0.0.1:'+p+'/'+a+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Apply pending migrations, then start. Override CMD to skip migrate if needed.
-CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/main.js"]
+# Apply pending migrations, import idempotent seed data, then start.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/prisma/seed.js && exec node dist/main.js"]
