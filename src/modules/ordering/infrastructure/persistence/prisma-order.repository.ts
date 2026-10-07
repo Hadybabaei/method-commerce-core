@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { Money } from '@shared/domain/value-objects/money'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
-import { Order } from '../../domain/entities/order.aggregate'
+import { Order, OrderShipping } from '../../domain/entities/order.aggregate'
 import { OrderItem } from '../../domain/entities/order-item.entity'
+import { ShippingSnapshot } from '../../domain/entities/shipping-method.entity'
 import { OrderReservationStatus, OrderStatus, PaymentMethod } from '../../domain/enums/order.enums'
 import { OrderConflictError } from '../../domain/errors/ordering.errors'
 import { OrderRepository } from '../../domain/repositories/order.repository'
@@ -41,6 +43,7 @@ export class PrismaOrderRepository implements OrderRepository {
 
   async create(order: Order, tx?: unknown): Promise<Order> {
     const client = this.client(tx)
+    const { shipping } = order
 
     const record = await client.order.create({
       data: {
@@ -51,6 +54,13 @@ export class PrismaOrderRepository implements OrderRepository {
         paymentMethod: order.paymentMethod,
         itemCount: order.itemCount,
         subtotal: order.subtotal.amount,
+        shippingMethodId: shipping.method?.methodId ?? null,
+        shippingSnapshot: shipping.method
+          ? (shipping.method as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+        shippingFee: shipping.fee.amount,
+        total: order.total.amount,
+        weightGrams: shipping.weightGrams,
         addressSnapshot: order.addressSnapshot as unknown as Prisma.InputJsonValue,
         note: order.note,
         stockAllocations: order.stockAllocations.toJSON() as unknown as Prisma.InputJsonValue,
@@ -67,6 +77,7 @@ export class PrismaOrderRepository implements OrderRepository {
       include: withItems,
     })
 
+    await this.writeStatusChanges(client, record.id, order)
     return toDomain(record)
   }
 
@@ -77,6 +88,7 @@ export class PrismaOrderRepository implements OrderRepository {
       data: this.mutation(order),
       include: withItems,
     })
+    await this.writeStatusChanges(client, order.id, order)
     return toDomain(record)
   }
 
@@ -90,6 +102,8 @@ export class PrismaOrderRepository implements OrderRepository {
     if (result.count !== 1) {
       throw new OrderConflictError({ order: order.id, expectedStatus })
     }
+
+    await this.writeStatusChanges(client, order.id, order)
 
     const saved = await this.loadById(client, order.id)
     if (!saved) {
@@ -124,10 +138,30 @@ export class PrismaOrderRepository implements OrderRepository {
       status: order.status,
       reservationStatus: order.reservationStatus,
       stockAllocations: order.stockAllocations.toJSON() as unknown as Prisma.InputJsonValue,
+      trackingCode: order.trackingCode,
+      trackingUrl: order.trackingUrl,
       cancelledAt: order.cancelledAt,
       paidAt: order.paidAt,
+      processingAt: order.processingAt,
+      shippedAt: order.shippedAt,
       completedAt: order.completedAt,
     }
+  }
+
+  private async writeStatusChanges(client: Client, orderId: number, order: Order): Promise<void> {
+    const changes = order.pullStatusChanges()
+    if (changes.length === 0) {
+      return
+    }
+    await client.order_status_event.createMany({
+      data: changes.map((change) => ({
+        orderId,
+        fromStatus: change.from,
+        toStatus: change.to,
+        note: change.note,
+        created_at: change.at,
+      })),
+    })
   }
 
   private async loadById(client: Client, id: number): Promise<Order | null> {
@@ -154,6 +188,14 @@ type Client = Prisma.TransactionClient | PrismaService
 
 type OrderRecord = Prisma.orderGetPayload<{ include: typeof withItems }>
 
+function toShipping(record: OrderRecord): OrderShipping {
+  return {
+    method: (record.shippingSnapshot as unknown as ShippingSnapshot | null) ?? null,
+    fee: Money.fromMinor(record.shippingFee),
+    weightGrams: record.weightGrams,
+  }
+}
+
 function toDomain(record: OrderRecord): Order {
   return Order.fromPersistence(record.id, {
     number: record.number,
@@ -174,8 +216,13 @@ function toDomain(record: OrderRecord): Order {
     addressSnapshot: record.addressSnapshot as unknown as AddressSnapshot,
     note: record.note,
     stockAllocations: StockAllocationPlan.fromJSON(record.stockAllocations),
+    shipping: toShipping(record),
+    trackingCode: record.trackingCode,
+    trackingUrl: record.trackingUrl,
     cancelledAt: record.cancelledAt,
     paidAt: record.paidAt,
+    processingAt: record.processingAt,
+    shippedAt: record.shippedAt,
     completedAt: record.completedAt,
     createdAt: record.created_at,
   })

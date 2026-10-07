@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsDate, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
+import {
+  IsDate,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator'
 import {
   ORDER_STATUSES,
   OrderStatus,
@@ -22,6 +32,17 @@ export class CreateOrderRequest {
   @IsOptional()
   @IsEnum(PaymentMethod)
   payment_method?: PaymentMethod
+
+  @ApiPropertyOptional({
+    example: 1,
+    description:
+      "A method from the preview's shippingMethods. Omitted = the cheapest method that delivers to the address.",
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  shipping_method_id?: number
 
   @ApiPropertyOptional({ example: 'لطفا عصر تحویل دهید', maxLength: 1000 })
   @IsOptional()
@@ -80,4 +101,21 @@ export class AdminListOrdersQueryRequest extends ListOrdersQueryRequest {
   @IsInt()
   @Min(1)
   user_id?: number
+}
+
+export class ShipOrderRequest {
+  @ApiPropertyOptional({ example: '123456789012345678901234', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  tracking_code?: string
+
+  @ApiPropertyOptional({
+    example: 'https://tracking.post.ir/?id=123456789012345678901234',
+    description: "Overrides the URL built from the shipping method's template.",
+  })
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(500)
+  tracking_url?: string
 }

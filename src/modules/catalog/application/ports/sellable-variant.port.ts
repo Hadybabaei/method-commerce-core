@@ -14,6 +14,8 @@ export interface SellableVariantSnapshot {
   /** What the customer pays per unit, in Rial. */
   unitPrice: number
   compareAtPrice: number | null
+  /** Shipping weight of one unit: the variant's own, else the product's. */
+  weightGrams: number
   /** sum(max(0, on_hand − reserved)) across locations. */
   availableQuantity: number
   options: { option: string; value: string }[]

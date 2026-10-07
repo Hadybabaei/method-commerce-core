@@ -53,10 +53,7 @@ import { CreateOrderUseCase } from '../use-cases/create-order.use-case'
 import { PreviewCheckoutUseCase } from '../use-cases/preview-checkout.use-case'
 import { CheckoutAssembler } from '../services/checkout-assembler.service'
 import { OrderNotificationService } from '../order-notification.service'
-import {
-  Notifications,
-  SendNotificationCommand,
-} from '@modules/notifications'
+import { Notifications, SendNotificationCommand } from '@modules/notifications'
 import { GetOrderUseCase } from '../use-cases/get-list-orders.use-case'
 import { HandlePaymentCallbackUseCase } from '../use-cases/handle-payment-callback.use-case'
 import { InitiatePaymentUseCase } from '../use-cases/initiate-payment.use-case'
@@ -65,6 +62,14 @@ import { ConfigService } from '@nestjs/config'
 import { OrderPaymentTimeoutScheduler } from '../ports/order-payment-timeout.port'
 import { UserRepository } from '@modules/identity/domain/repositories/user.repository'
 import { User } from '@modules/identity/domain/entities/user.aggregate'
+import { PhoneNumber } from '@modules/identity/domain/value-objects/phone-number.vo'
+import { OrderStatusChange } from '../../domain/entities/order.aggregate'
+import { ShippingMethod } from '../../domain/entities/shipping-method.entity'
+import { ShippingMethodRepository } from '../../domain/repositories/shipping-method.repository'
+import { OrderSms, OrderSmsDispatcher } from '../ports/order-sms.port'
+import { ProcessOrderUseCase } from '../use-cases/process-order.use-case'
+import { ShipOrderUseCase } from '../use-cases/ship-order.use-case'
+import { CreateShippingMethodUseCase } from '../use-cases/shipping-methods.use-cases'
 
 class AsyncMutex {
   private tail: Promise<void> = Promise.resolve()
@@ -255,6 +260,8 @@ export class InMemoryInventory implements InventoryReservationService {
 export class InMemoryOrderRepository implements OrderRepository {
   private nextId = 1
   readonly byId = new Map<number, Order>()
+  /** order_status_event rows by order id, oldest first. */
+  readonly history = new Map<number, OrderStatusChange[]>()
   private readonly locks = new Map<number, HoldMutex>()
   private readonly sequenceLock = new HoldMutex()
 
@@ -285,13 +292,21 @@ export class InMemoryOrderRepository implements OrderRepository {
     const id = this.nextId++
     const persisted = this.rehydrate(id, order)
     this.byId.set(id, persisted)
+    this.recordHistory(id, order)
     return this.clone(persisted)!
   }
 
   async save(order: Order): Promise<Order> {
     const persisted = this.rehydrate(order.id, order)
     this.byId.set(order.id, persisted)
+    this.recordHistory(order.id, order)
     return this.clone(persisted)!
+  }
+
+  private recordHistory(id: number, order: Order): void {
+    const rows = this.history.get(id) ?? []
+    rows.push(...order.pullStatusChanges())
+    this.history.set(id, rows)
   }
 
   async saveIfStatus(order: Order, expectedStatus: OrderStatus): Promise<Order> {
@@ -347,8 +362,13 @@ export class InMemoryOrderRepository implements OrderRepository {
       addressSnapshot: order.addressSnapshot,
       note: order.note,
       stockAllocations: order.stockAllocations,
+      shipping: order.shipping,
+      trackingCode: order.trackingCode,
+      trackingUrl: order.trackingUrl,
       cancelledAt: order.cancelledAt,
       paidAt: order.paidAt,
+      processingAt: order.processingAt,
+      shippedAt: order.shippedAt,
       completedAt: order.completedAt,
       createdAt: order.createdAt,
     })
@@ -498,6 +518,23 @@ class InMemoryOrderReads implements OrderReadModel {
       paymentMethod: order.paymentMethod,
       itemCount: order.itemCount,
       subtotal: order.subtotal.amount,
+      shippingFee: order.shipping.fee.amount,
+      total: order.total.amount,
+      shipping: {
+        method: order.shipping.method
+          ? {
+              id: order.shipping.method.methodId,
+              name: order.shipping.method.name,
+              code: order.shipping.method.code,
+              minDays: order.shipping.method.minDays,
+              maxDays: order.shipping.method.maxDays,
+            }
+          : null,
+        fee: order.shipping.fee.amount,
+        weightGrams: order.shipping.weightGrams,
+        trackingCode: order.trackingCode,
+        trackingUrl: order.trackingUrl,
+      },
       note: order.note,
       address: order.addressSnapshot,
       items: order.items.map((item) => ({
@@ -518,8 +555,16 @@ class InMemoryOrderReads implements OrderReadModel {
           }
         : null,
       canCancel: order.status === OrderStatus.Pending && !captured,
+      statusHistory: (this.orders.history.get(order.id) ?? []).map((change) => ({
+        from: change.from,
+        to: change.to,
+        note: change.note,
+        at: change.at,
+      })),
       cancelledAt: order.cancelledAt,
       paidAt: order.paidAt,
+      processingAt: order.processingAt,
+      shippedAt: order.shippedAt,
       completedAt: order.completedAt,
       createdAt: order.createdAt,
     }
@@ -567,7 +612,9 @@ class InMemoryBaskets implements BasketRepository, BasketReadModel {
     const persisted = Basket.fromPersistence(
       id,
       basket.userId,
-      basket.getItems().map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
+      basket
+        .getItems()
+        .map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
     )
     this.byUser.set(basket.userId, persisted)
     return this.clone(persisted)
@@ -615,7 +662,9 @@ class InMemoryBaskets implements BasketRepository, BasketReadModel {
     return Basket.fromPersistence(
       basket.id,
       basket.userId,
-      basket.getItems().map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
+      basket
+        .getItems()
+        .map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
     )
   }
 
@@ -744,10 +793,7 @@ export class FakePaymentGateway implements PaymentGateway {
 
 function fakePrisma(): PrismaService {
   return {
-    $transaction: async <T>(
-      fn: (tx: unknown) => Promise<T>,
-      _options?: unknown
-    ): Promise<T> => {
+    $transaction: async <T>(fn: (tx: unknown) => Promise<T>, _options?: unknown): Promise<T> => {
       const tx: LockBag = { _releases: [] }
       try {
         return await fn(tx)
@@ -761,9 +807,10 @@ function fakePrisma(): PrismaService {
   } as unknown as PrismaService
 }
 
+/** Every user id exists, with phone 0912 followed by the id padded to 7 digits. */
 class InMemoryUsers implements UserRepository {
-  async findById(): Promise<User | null> {
-    return null
+  async findById(id: number): Promise<User | null> {
+    return User.register(PhoneNumber.create(phoneFor(id)), new Date())
   }
 
   async findByPhoneNumber(): Promise<User | null> {
@@ -825,6 +872,7 @@ export function defaultVariant(
     isActive: true,
     unitPrice: 1_000_000,
     compareAtPrice: null,
+    weightGrams: 500,
     availableQuantity: 10,
     options: [{ option: 'رنگ', value: 'قرمز' }],
     image: null,
@@ -838,6 +886,61 @@ export class RecordingNotifications implements Notifications {
 
   async sendNotification(command: SendNotificationCommand): Promise<void> {
     this.sent.push(command)
+  }
+}
+
+export const phoneFor = (userId: number) => `0912${String(userId).padStart(7, '0')}`
+
+export class RecordingOrderSms implements OrderSmsDispatcher {
+  readonly sent: OrderSms[] = []
+
+  async dispatch(sms: OrderSms): Promise<void> {
+    this.sent.push(sms)
+  }
+}
+
+export class InMemoryShippingMethods implements ShippingMethodRepository {
+  private nextId = 1
+  private readonly byId = new Map<number, ShippingMethod>()
+
+  async findById(id: number): Promise<ShippingMethod | null> {
+    return this.byId.get(id) ?? null
+  }
+
+  async findByCode(code: string): Promise<ShippingMethod | null> {
+    return [...this.byId.values()].find((method) => method.code === code) ?? null
+  }
+
+  async list(): Promise<ShippingMethod[]> {
+    return [...this.byId.values()].sort((a, b) => a.position - b.position || a.id - b.id)
+  }
+
+  async listActive(): Promise<ShippingMethod[]> {
+    return (await this.list()).filter((method) => method.isActive)
+  }
+
+  async save(method: ShippingMethod): Promise<ShippingMethod> {
+    const id = method.id || this.nextId++
+    const saved = ShippingMethod.fromPersistence(id, {
+      name: method.name,
+      code: method.code,
+      description: method.description,
+      baseFee: method.baseFee,
+      perKgFee: method.perKgFee,
+      freeAbove: method.freeAbove,
+      minDays: method.minDays,
+      maxDays: method.maxDays,
+      provinceIds: method.provinceIds,
+      trackingUrlTemplate: method.trackingUrlTemplate,
+      isActive: method.isActive,
+      position: method.position,
+    })
+    this.byId.set(id, saved)
+    return saved
+  }
+
+  async delete(id: number): Promise<void> {
+    this.byId.delete(id)
   }
 }
 
@@ -855,6 +958,11 @@ export interface CommerceHarness {
   cancelOrder: CancelOrderUseCase
   confirmCod: ConfirmCodPaymentUseCase
   completeOrder: CompleteOrderUseCase
+  processOrder: ProcessOrderUseCase
+  shipOrder: ShipOrderUseCase
+  shippingMethods: InMemoryShippingMethods
+  createShippingMethod: CreateShippingMethodUseCase
+  sms: RecordingOrderSms
   getOrder: GetOrderUseCase
   initiatePayment: InitiatePaymentUseCase
   handleCallback: HandlePaymentCallbackUseCase
@@ -865,10 +973,7 @@ export interface CommerceHarness {
   runDueUnpaidCancels: () => Promise<void>
   seedStock: (variantId: number, onHand: number, locationId?: number) => void
   seedCatalogVariant: (variant: SellableVariantSnapshot) => void
-  seedUserBasket: (
-    userId: number,
-    lines: Array<{ variantId: number; quantity: number }>
-  ) => void
+  seedUserBasket: (userId: number, lines: Array<{ variantId: number; quantity: number }>) => void
   seedUserAddress: (userId: number, addressId?: number) => number
   /** Helper: Zibal-shaped success callback for a trackId. */
   successCallbackRaw: (trackId: string) => Record<string, string>
@@ -942,9 +1047,16 @@ export function createCommerceHarness(): CommerceHarness {
   const paymentTimeouts = new InMemoryOrderPaymentTimeoutScheduler(() => clock.now().getTime())
   const orderingConfig = orderingConfigService()
   const notifications = new RecordingNotifications()
-  const orderNotifications = new OrderNotificationService(notifications)
-  const assembler = new CheckoutAssembler(addresses, asAddressReads(addresses), variantLookup)
   const users = new InMemoryUsers()
+  const sms = new RecordingOrderSms()
+  const shippingMethods = new InMemoryShippingMethods()
+  const orderNotifications = new OrderNotificationService(notifications, users, sms)
+  const assembler = new CheckoutAssembler(
+    addresses,
+    asAddressReads(addresses),
+    variantLookup,
+    shippingMethods
+  )
   const cancelOrder = new CancelOrderUseCase(
     orders,
     orderReads,
@@ -999,6 +1111,11 @@ export function createCommerceHarness(): CommerceHarness {
       prisma
     ),
     completeOrder: new CompleteOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
+    processOrder: new ProcessOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
+    shipOrder: new ShipOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
+    shippingMethods,
+    createShippingMethod: new CreateShippingMethodUseCase(shippingMethods),
+    sms,
     getOrder: new GetOrderUseCase(orderReads),
     initiatePayment: new InitiatePaymentUseCase(orders, payments, gateway, users, clock, prisma),
     handleCallback,

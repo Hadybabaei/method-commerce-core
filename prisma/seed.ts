@@ -191,6 +191,30 @@ async function seedInventoryLocation(): Promise<{ id: number }> {
   return { id: location.id }
 }
 
+/** Sample rates only; operators set real ones in the admin panel. */
+async function seedShippingMethods(): Promise<void> {
+  const existing = await prisma.shipping_method.findUnique({ where: { code: 'post' } })
+  if (existing) {
+    console.log('Shipping method post already exists; skipping.')
+    return
+  }
+
+  await prisma.shipping_method.create({
+    data: {
+      name: 'پست پیشتاز',
+      code: 'post',
+      description: 'ارسال به سراسر کشور',
+      base_fee: 500_000,
+      per_kg_fee: 100_000,
+      free_above: 50_000_000,
+      min_days: 3,
+      max_days: 7,
+      position: 0,
+    },
+  })
+  console.log('Created shipping method post')
+}
+
 async function seedCustomer(): Promise<{ id: number }> {
   const existing = await prisma.user.findUnique({ where: { phone_number: CUSTOMER_PHONE } })
   if (existing) {
@@ -321,7 +345,11 @@ async function seedProducts(input: {
       images: {
         create: [
           { url: drillImage, thumbnail: true, position: 0 },
-          { url: 'https://cdn.method-commerce.ir/products/drill-2.jpg', thumbnail: false, position: 1 },
+          {
+            url: 'https://cdn.method-commerce.ir/products/drill-2.jpg',
+            thumbnail: false,
+            position: 1,
+          },
         ],
       },
     },
@@ -861,6 +889,7 @@ async function main(): Promise<void> {
   await seedOperatorAdmin()
   await seedLocations()
   const warehouse = await seedInventoryLocation()
+  await seedShippingMethods()
   const customer = await seedCustomer()
   const categories = await seedCategories()
   const brands = await seedBrands()

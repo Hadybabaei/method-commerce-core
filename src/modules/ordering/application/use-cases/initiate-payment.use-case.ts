@@ -14,10 +14,7 @@ import {
   PaymentAlreadyInProgressError,
 } from '../../domain/errors/ordering.errors'
 import { ORDER_REPOSITORY, OrderRepository } from '../../domain/repositories/order.repository'
-import {
-  PAYMENT_REPOSITORY,
-  PaymentRepository,
-} from '../../domain/repositories/payment.repository'
+import { PAYMENT_REPOSITORY, PaymentRepository } from '../../domain/repositories/payment.repository'
 import { InitiatePaymentCommand, PaymentView } from '../dto/views'
 import { PAYMENT_GATEWAY, PaymentGateway } from '../ports/payment-gateway.port'
 
@@ -53,7 +50,7 @@ export class InitiatePaymentUseCase implements UseCase<InitiatePaymentCommand, P
       })
     }
 
-    const amount = order.subtotal.amount
+    const amount = order.total.amount
     const payment = await this.lockAndDraftPayment(order.id, command.userId, key, amount)
 
     if (payment.isCaptured || payment.hasOpenGatewaySession) {

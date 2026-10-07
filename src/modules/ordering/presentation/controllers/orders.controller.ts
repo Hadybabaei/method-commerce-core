@@ -67,6 +67,7 @@ export class OrdersController {
       userId,
       addressId: body.address_id,
       paymentMethod: body.payment_method,
+      shippingMethodId: body.shipping_method_id,
       note: body.note,
     })
   }
@@ -90,6 +91,7 @@ export class OrdersController {
       userId,
       addressId: body.address_id,
       paymentMethod: body.payment_method,
+      shippingMethodId: body.shipping_method_id,
       note: body.note,
     })
   }

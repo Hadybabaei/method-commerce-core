@@ -44,6 +44,7 @@ export class PrismaSellableVariantLookup implements SellableVariantLookup {
       isActive: record.is_active,
       unitPrice: record.sale_price ?? record.price,
       compareAtPrice: record.sale_price === null ? null : record.price,
+      weightGrams: record.weightGrams ?? record.product.weightGrams,
       availableQuantity,
       options: record.optionValues.map((link) => ({
         option: link.optionValue.option.name,
