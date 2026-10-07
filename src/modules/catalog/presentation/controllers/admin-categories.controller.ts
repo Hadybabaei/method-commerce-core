@@ -69,6 +69,8 @@ export class AdminCategoriesController {
       slug: body.slug,
       icon: body.icon,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
       parentId: body.parent_id,
       position: body.position,
     })
@@ -96,6 +98,8 @@ export class AdminCategoriesController {
       slug: body.slug,
       icon: body.icon,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
       parentId: body.parent_id,
       position: body.position,
     })

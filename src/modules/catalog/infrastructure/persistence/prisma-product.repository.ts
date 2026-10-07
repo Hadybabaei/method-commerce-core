@@ -1,3 +1,4 @@
+import { SlugRedirectType, currentSlug, recordSlugChange } from './slug-redirects'
 import { Inject, Injectable } from '@nestjs/common'
 import { EVENT_PUBLISHER, EventPublisher } from '@shared/application/ports/event-publisher.port'
 import {
@@ -72,9 +73,13 @@ export class PrismaProductRepository implements ProductRepository {
   async save(product: Product): Promise<Product> {
     const record = await this.prisma.$transaction(async (tx) => {
       const data = toProductWriteData(product)
+      const previousSlug = product.isNew
+        ? null
+        : await currentSlug(tx, SlugRedirectType.PRODUCT, product.id)
       const saved = product.isNew
         ? await tx.product.create({ data })
         : await tx.product.update({ where: { id: product.id }, data })
+      await recordSlugChange(tx, SlugRedirectType.PRODUCT, saved.id, previousSlug, saved.slug)
 
       await this.syncImages(tx, saved.id, product)
       const optionValueIds = await this.syncOptions(tx, saved.id, product)

@@ -26,6 +26,15 @@ export class CategoryResponse implements CategoryView {
   @ApiProperty({ nullable: true })
   description: string | null
 
+  @ApiProperty({ nullable: true, description: 'Search-engine title; null = use the title.' })
+  seoTitle: string | null
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Search-engine description; null = use the description.',
+  })
+  seoDescription: string | null
+
   @ApiProperty({ example: 1, nullable: true, description: 'Null for a root category.' })
   parentId: number | null
 
@@ -59,6 +68,15 @@ export class BrandResponse implements BrandView {
 
   @ApiProperty({ example: 'ابزار آلمانی', nullable: true })
   description: string | null
+
+  @ApiProperty({ nullable: true, description: 'Search-engine title; null = use the title.' })
+  seoTitle: string | null
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Search-engine description; null = use the description.',
+  })
+  seoDescription: string | null
 }
 
 /** Category and brand as they appear nested inside a product. */
@@ -181,6 +199,15 @@ export class ProductSummaryResponse implements ProductSummaryView {
 export class ProductDetailResponse extends ProductSummaryResponse implements ProductDetailView {
   @ApiProperty({ nullable: true })
   description: string | null
+
+  @ApiProperty({ nullable: true, description: 'Search-engine title; null = use the title.' })
+  seoTitle: string | null
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Search-engine description; null = use the description.',
+  })
+  seoDescription: string | null
 
   @ApiProperty({ nullable: true })
   shortDescription: string | null

@@ -24,6 +24,9 @@ export class UpdateBrandUseCase implements UseCase<UpdateBrandCommand, BrandView
     if (command.title !== undefined) changes.title = command.title
     if (command.logo !== undefined) changes.logo = command.logo
     if (command.description !== undefined) changes.description = command.description
+    if (command.seoTitle !== undefined || command.seoDescription !== undefined) {
+      changes.seo = { title: command.seoTitle, description: command.seoDescription }
+    }
 
     if (command.slug !== undefined) {
       const slug = Slug.create(command.slug)

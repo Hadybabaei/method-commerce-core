@@ -135,11 +135,14 @@ model user_address {
 // ---------------------------------------------------------------------------
 
 model category {
-  id          Int     @id @default(autoincrement())
-  title       String
-  slug        String  @unique
-  icon        String?
-  description String? @db.Text
+  id              Int     @id @default(autoincrement())
+  title           String
+  slug            String  @unique
+  icon            String?
+  description     String? @db.Text
+  /// Search-engine title and description; null falls back to the title and description.
+  seo_title       String? @db.VarChar(120)
+  seo_description String? @db.VarChar(320)
 
   parentId Int?
   parent   category?  @relation("CategorySelfRef", fields: [parentId], references: [id])
@@ -162,11 +165,14 @@ model category {
 }
 
 model brand {
-  id          Int     @id @default(autoincrement())
-  title       String
-  slug        String  @unique
-  logo        String?
-  description String? @db.Text
+  id              Int     @id @default(autoincrement())
+  title           String
+  slug            String  @unique
+  logo            String?
+  description     String? @db.Text
+  /// Search-engine title and description; null falls back to the title and description.
+  seo_title       String? @db.VarChar(120)
+  seo_description String? @db.VarChar(320)
 
   products   product[]
   created_at DateTime  @default(now())
@@ -179,6 +185,9 @@ model product {
   sub_title         String?
   slug              String  @unique
   description       String? @db.Text
+  /// Search-engine title and description; null falls back to the title and description.
+  seo_title         String? @db.VarChar(120)
+  seo_description   String? @db.VarChar(320)
   short_description String? @db.Text
   publish           Boolean @default(true)
   weightGrams       Int     @default(500)
@@ -332,8 +341,8 @@ model inventory_level {
 // ---------------------------------------------------------------------------
 
 model basket {
-  id     Int @id @default(autoincrement())
-  userId Int @unique
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
   user   user @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   items basket_item[]
@@ -388,7 +397,7 @@ enum PaymentStatus {
 }
 
 model order {
-  id     Int  @id @default(autoincrement())
+  id     Int    @id @default(autoincrement())
   /// Human-facing code, e.g. ORD-20260911-00042.
   number String @unique
 
@@ -497,8 +506,8 @@ model comment {
   product   product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   /// Exactly one of userId / adminId is set — who wrote the comment.
-  userId Int?
-  user   user? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  Int?
+  user    user?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   adminId Int?
   admin   admin? @relation(fields: [adminId], references: [id], onDelete: Cascade)
 
@@ -569,4 +578,29 @@ model notification {
   @@index([audience, recipientId, created_at])
   @@index([audience, recipientId, readAt])
   @@index([context, type])
+}
+
+// ---------------------------------------------------------------------------
+// SEO
+// ---------------------------------------------------------------------------
+
+enum SlugRedirectType {
+  PRODUCT
+  CATEGORY
+  BRAND
+}
+
+/// A slug a catalog entry used to have. Old links resolve to the entry's
+/// current slug by id, so renaming twice still lands on the latest one.
+model slug_redirect {
+  id       Int              @id @default(autoincrement())
+  type     SlugRedirectType
+  old_slug String
+  /// Product, category or brand id (no foreign key: the table is shared).
+  targetId Int
+
+  created_at DateTime @default(now())
+
+  @@unique([type, old_slug])
+  @@index([type, targetId])
 }

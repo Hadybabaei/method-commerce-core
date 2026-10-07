@@ -316,3 +316,15 @@ describe('Product publishing', () => {
     expect(product.pullDomainEvents()).toHaveLength(0)
   })
 })
+
+describe('Product SEO', () => {
+  it('starts without overrides and merges partial changes', () => {
+    const product = newProduct()
+    expect(product.seo.unpack()).toEqual({ title: null, description: null })
+
+    product.apply({ seo: { title: 'خرید دریل شارژی', description: 'ارسال سریع' } })
+    product.apply({ seo: { description: null } })
+
+    expect(product.seo.unpack()).toEqual({ title: 'خرید دریل شارژی', description: null })
+  })
+})

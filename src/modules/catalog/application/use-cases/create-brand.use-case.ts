@@ -1,3 +1,4 @@
+import { SeoMeta } from '../../domain/value-objects/seo-meta.vo'
 import { Inject, Injectable } from '@nestjs/common'
 import { UseCase } from '@shared/application/use-case'
 import { Brand } from '../../domain/entities/brand.aggregate'
@@ -24,6 +25,7 @@ export class CreateBrandUseCase implements UseCase<CreateBrandCommand, BrandView
       slug,
       logo: command.logo ?? null,
       description: command.description ?? null,
+      seo: SeoMeta.create({ title: command.seoTitle, description: command.seoDescription }),
     })
 
     return toBrandView(await this.brands.save(brand))

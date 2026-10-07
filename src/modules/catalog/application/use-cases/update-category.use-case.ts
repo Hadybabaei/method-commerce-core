@@ -38,6 +38,9 @@ export class UpdateCategoryUseCase implements UseCase<UpdateCategoryCommand, Cat
     if (command.title !== undefined) changes.title = command.title
     if (command.icon !== undefined) changes.icon = command.icon
     if (command.description !== undefined) changes.description = command.description
+    if (command.seoTitle !== undefined || command.seoDescription !== undefined) {
+      changes.seo = { title: command.seoTitle, description: command.seoDescription }
+    }
     if (command.position !== undefined) changes.position = command.position
 
     if (command.slug !== undefined) {
