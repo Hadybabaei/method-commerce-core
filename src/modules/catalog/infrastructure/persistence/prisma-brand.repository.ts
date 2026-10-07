@@ -1,3 +1,4 @@
+import { SlugRedirectType, currentSlug, recordSlugChange } from './slug-redirects'
 import { Inject, Injectable } from '@nestjs/common'
 import { EVENT_PUBLISHER, EventPublisher } from '@shared/application/ports/event-publisher.port'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
@@ -45,9 +46,16 @@ export class PrismaBrandRepository implements BrandRepository {
 
   async save(brand: Brand): Promise<Brand> {
     const data = toBrandWriteData(brand)
-    const record = brand.isNew
-      ? await this.prisma.brand.create({ data })
-      : await this.prisma.brand.update({ where: { id: brand.id }, data })
+    const record = await this.prisma.$transaction(async (tx) => {
+      const previousSlug = brand.isNew
+        ? null
+        : await currentSlug(tx, SlugRedirectType.BRAND, brand.id)
+      const saved = brand.isNew
+        ? await tx.brand.create({ data })
+        : await tx.brand.update({ where: { id: brand.id }, data })
+      await recordSlugChange(tx, SlugRedirectType.BRAND, saved.id, previousSlug, saved.slug)
+      return saved
+    })
 
     await this.events.publish(brand.pullDomainEvents())
 

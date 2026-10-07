@@ -5,6 +5,7 @@ import { CategoryCycleError, CategoryTooDeepError } from '../errors/catalog.erro
 import { CategoryMovedEvent } from '../events/catalog.events'
 import { CategoryPath, MAX_CATEGORY_DEPTH } from '../value-objects/category-path.vo'
 import { Slug } from '../value-objects/slug.vo'
+import { SeoMeta, SeoMetaChanges } from '../value-objects/seo-meta.vo'
 
 export interface CategoryProps {
   title: string
@@ -14,6 +15,7 @@ export interface CategoryProps {
   parentId: number | null
   path: CategoryPath
   position: number
+  seo: SeoMeta
 }
 
 export interface CategoryChanges {
@@ -22,6 +24,7 @@ export interface CategoryChanges {
   icon?: string | null
   description?: string | null
   position?: number
+  seo?: SeoMetaChanges
 }
 
 /**
@@ -45,7 +48,10 @@ export class Category extends AggregateRoot {
    * what decide whether this is allowed.
    */
   static create(
-    props: Omit<CategoryProps, 'path' | 'parentId'> & { parent: Category | null }
+    props: Omit<CategoryProps, 'path' | 'parentId' | 'seo'> & {
+      parent: Category | null
+      seo?: SeoMeta
+    }
   ): Category {
     const { parent, ...rest } = props
 
@@ -59,6 +65,7 @@ export class Category extends AggregateRoot {
 
     return new Category(UNSAVED_ID, {
       ...rest,
+      seo: rest.seo ?? SeoMeta.empty,
       parentId: parent === null ? null : parent.id,
       path,
     })
@@ -78,6 +85,7 @@ export class Category extends AggregateRoot {
     if (changes.icon !== undefined) this.props.icon = changes.icon
     if (changes.description !== undefined) this.props.description = changes.description
     if (changes.position !== undefined) this.props.position = changes.position
+    if (changes.seo !== undefined) this.props.seo = this.props.seo.merge(changes.seo)
   }
 
   /**
@@ -137,6 +145,11 @@ export class Category extends AggregateRoot {
 
   get description(): string | null {
     return this.props.description
+  }
+
+  /** Search-engine overrides; nulls fall back to the title and description. */
+  get seo(): SeoMeta {
+    return this.props.seo
   }
 
   get parentId(): number | null {

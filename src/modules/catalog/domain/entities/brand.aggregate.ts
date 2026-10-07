@@ -2,15 +2,17 @@ import { AggregateRoot } from '@shared/domain/aggregate-root.base'
 import { InvalidInputError } from '@shared/domain/errors'
 import { UNSAVED_ID } from '@shared/domain/identifier'
 import { Slug } from '../value-objects/slug.vo'
+import { SeoMeta, SeoMetaChanges } from '../value-objects/seo-meta.vo'
 
 export interface BrandProps {
   title: string
   slug: Slug
   logo: string | null
   description: string | null
+  seo: SeoMeta
 }
 
-export type BrandChanges = Partial<BrandProps>
+export type BrandChanges = Partial<Omit<BrandProps, 'seo'>> & { seo?: SeoMetaChanges }
 
 export class Brand extends AggregateRoot {
   private props: BrandProps
@@ -20,10 +22,10 @@ export class Brand extends AggregateRoot {
     this.props = props
   }
 
-  static create(props: BrandProps): Brand {
+  static create(props: Omit<BrandProps, 'seo'> & { seo?: SeoMeta }): Brand {
     Brand.assertTitle(props.title)
 
-    return new Brand(UNSAVED_ID, props)
+    return new Brand(UNSAVED_ID, { ...props, seo: props.seo ?? SeoMeta.empty })
   }
 
   static fromPersistence(id: number, props: BrandProps): Brand {
@@ -39,6 +41,7 @@ export class Brand extends AggregateRoot {
     if (changes.slug !== undefined) this.props.slug = changes.slug
     if (changes.logo !== undefined) this.props.logo = changes.logo
     if (changes.description !== undefined) this.props.description = changes.description
+    if (changes.seo !== undefined) this.props.seo = this.props.seo.merge(changes.seo)
   }
 
   private static assertTitle(title: string): void {
@@ -61,5 +64,10 @@ export class Brand extends AggregateRoot {
 
   get description(): string | null {
     return this.props.description
+  }
+
+  /** Search-engine overrides; nulls fall back to the title and description. */
+  get seo(): SeoMeta {
+    return this.props.seo
   }
 }

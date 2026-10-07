@@ -1,3 +1,4 @@
+import { SeoMeta } from '../../domain/value-objects/seo-meta.vo'
 import { Inject, Injectable } from '@nestjs/common'
 import { UseCase } from '@shared/application/use-case'
 import { Category } from '../../domain/entities/category.aggregate'
@@ -29,6 +30,7 @@ export class CreateCategoryUseCase implements UseCase<CreateCategoryCommand, Cat
       slug,
       icon: command.icon ?? null,
       description: command.description ?? null,
+      seo: SeoMeta.create({ title: command.seoTitle, description: command.seoDescription }),
       position: command.position ?? 0,
       parent,
     })

@@ -1,13 +1,12 @@
 import { createWriteStream } from 'node:fs'
 import { mkdir, unlink } from 'node:fs/promises'
-import { join, extname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { AppConfig } from '@config/app.config'
 import { UploadConfig } from '@config/upload.config'
-import { InvalidInputError } from '@shared/domain/errors'
 import {
   ObjectStorage,
   StoreObjectInput,
@@ -15,13 +14,7 @@ import {
 } from '@shared/application/ports/object-storage.port'
 import { SECURE_RANDOM, SecureRandom } from '@shared/application/ports/secure-random.port'
 import { Inject } from '@nestjs/common'
-
-const EXTENSION_BY_MIME: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-  'image/gif': '.gif',
-}
+import { objectKey } from './object-key'
 
 /**
  * Writes files under `UPLOAD_DIR` and exposes them at `SERVER_URL` + publicPath.
@@ -45,18 +38,9 @@ export class LocalDiskObjectStorage implements ObjectStorage {
   }
 
   async store(input: StoreObjectInput): Promise<StoredObject> {
-    const extension =
-      EXTENSION_BY_MIME[input.mimeType] ?? extname(input.originalName).toLowerCase() ?? ''
-
-    if (!extension) {
-      throw new InvalidInputError('Could not determine a file extension for the upload')
-    }
-
-    const folder = input.folder.replace(/^\/+|\/+$/g, '')
-    const fileName = `${Date.now()}-${this.random.alphanumeric(12)}${extension}`
-    const relativePath = `${folder}/${fileName}`.replace(/\\/g, '/')
-    const absoluteDir = join(this.rootDir, folder)
-    const absolutePath = join(absoluteDir, fileName)
+    const relativePath = objectKey(input, this.random)
+    const absolutePath = join(this.rootDir, relativePath)
+    const absoluteDir = dirname(absolutePath)
 
     await mkdir(absoluteDir, { recursive: true })
     await pipeline(Readable.from(input.buffer), createWriteStream(absolutePath))

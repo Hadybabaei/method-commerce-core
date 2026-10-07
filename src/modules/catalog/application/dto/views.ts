@@ -4,6 +4,10 @@ export interface CategoryView {
   slug: string
   icon: string | null
   description: string | null
+  /** Search-engine title; null = use the title. */
+  seoTitle: string | null
+  /** Search-engine description; null = use the description. */
+  seoDescription: string | null
   parentId: number | null
   depth: number
   position: number
@@ -19,6 +23,10 @@ export interface BrandView {
   slug: string
   logo: string | null
   description: string | null
+  /** Search-engine title; null = use the title. */
+  seoTitle: string | null
+  /** Search-engine description; null = use the description. */
+  seoDescription: string | null
 }
 
 export interface ProductImageView {
@@ -64,6 +72,10 @@ export interface ProductSummaryView {
 
 export interface ProductDetailView extends ProductSummaryView {
   description: string | null
+  /** Search-engine title; null = use the title. */
+  seoTitle: string | null
+  /** Search-engine description; null = use the description. */
+  seoDescription: string | null
   shortDescription: string | null
   weightGrams: number
   images: ProductImageView[]

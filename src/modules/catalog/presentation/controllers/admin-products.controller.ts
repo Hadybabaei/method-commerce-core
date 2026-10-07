@@ -121,6 +121,8 @@ export class AdminProductsController {
       slug: body.slug,
       subTitle: body.sub_title,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
       shortDescription: body.short_description,
       published: body.published,
       weightGrams: body.weight_grams,
@@ -151,6 +153,8 @@ export class AdminProductsController {
       slug: body.slug,
       subTitle: body.sub_title,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
       shortDescription: body.short_description,
       published: body.published,
       weightGrams: body.weight_grams,
@@ -204,7 +208,10 @@ export class AdminProductsController {
       'Omit options (or send []) when the product has no option axes. on_hand is stored on the default warehouse.',
   })
   @ApiParam({ name: 'id', example: 1 })
-  @ApiCreatedResponse({ type: ProductDetailResponse, description: 'The product with the new variant.' })
+  @ApiCreatedResponse({
+    type: ProductDetailResponse,
+    description: 'The product with the new variant.',
+  })
   @ApiErrorResponses(
     HttpStatus.BAD_REQUEST,
     HttpStatus.UNAUTHORIZED,
@@ -236,7 +243,10 @@ export class AdminProductsController {
   })
   @ApiParam({ name: 'id', example: 1 })
   @ApiParam({ name: 'variantId', example: 11 })
-  @ApiOkResponse({ type: ProductDetailResponse, description: 'The product with the updated variant.' })
+  @ApiOkResponse({
+    type: ProductDetailResponse,
+    description: 'The product with the updated variant.',
+  })
   @ApiErrorResponses(
     HttpStatus.BAD_REQUEST,
     HttpStatus.UNAUTHORIZED,

@@ -8,6 +8,7 @@ import {
   IsString,
   Max,
   MinLength,
+  ValidateIf,
   validateSync,
 } from 'class-validator'
 
@@ -20,6 +21,11 @@ export enum NodeEnv {
 export enum SmsDriver {
   Console = 'console',
   Kavenegar = 'kavenegar',
+}
+
+export enum StorageDriver {
+  Disk = 'disk',
+  S3 = 's3',
 }
 
 export enum LogLevel {
@@ -119,6 +125,36 @@ class EnvironmentVariables {
   @IsInt()
   @IsOptional()
   ORDER_PAYMENT_INQUIRY_INTERVAL_MS = 60_000
+
+  @IsEnum(StorageDriver)
+  @IsOptional()
+  STORAGE_DRIVER: StorageDriver = StorageDriver.Disk
+
+  @ValidateIf((env: EnvironmentVariables) => env.STORAGE_DRIVER === StorageDriver.S3)
+  @IsString()
+  @IsNotEmpty()
+  S3_BUCKET?: string
+
+  @ValidateIf((env: EnvironmentVariables) => env.STORAGE_DRIVER === StorageDriver.S3)
+  @IsString()
+  @IsNotEmpty()
+  S3_ACCESS_KEY_ID?: string
+
+  @ValidateIf((env: EnvironmentVariables) => env.STORAGE_DRIVER === StorageDriver.S3)
+  @IsString()
+  @IsNotEmpty()
+  S3_SECRET_ACCESS_KEY?: string
+
+  /** Where uploaded files are publicly readable, e.g. the CDN in front of the bucket. */
+  @ValidateIf((env: EnvironmentVariables) => env.STORAGE_DRIVER === StorageDriver.S3)
+  @IsString()
+  @IsNotEmpty()
+  S3_PUBLIC_BASE_URL?: string
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  UPLOAD_MAX_IMAGE_DIMENSION = 1600
 }
 
 export function validateEnv(raw: Record<string, unknown>): Record<string, unknown> {
