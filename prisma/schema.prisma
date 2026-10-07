@@ -332,8 +332,8 @@ model inventory_level {
 // ---------------------------------------------------------------------------
 
 model basket {
-  id     Int @id @default(autoincrement())
-  userId Int @unique
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
   user   user @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   items basket_item[]
@@ -365,6 +365,8 @@ model basket_item {
 enum OrderStatus {
   PENDING
   PAID
+  PROCESSING
+  SHIPPED
   CANCELLED
   COMPLETED
 }
@@ -388,7 +390,7 @@ enum PaymentStatus {
 }
 
 model order {
-  id     Int  @id @default(autoincrement())
+  id     Int    @id @default(autoincrement())
   /// Human-facing code, e.g. ORD-20260911-00042.
   number String @unique
 
@@ -410,14 +412,31 @@ model order {
   /// Per-location stock holds so cancel can release exactly what was reserved.
   stockAllocations Json?
 
-  items    order_item[]
-  payments payment[]
+  /// Null when the store had no shipping methods configured at checkout.
+  shippingMethodId Int?
+  shippingMethod   shipping_method? @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
+  /// Frozen copy of the chosen method (name, delivery days, tracking URL template).
+  shippingSnapshot Json?
+  /// Shipping charge in Rial, fixed at checkout.
+  shippingFee      Int              @default(0)
+  /// subtotal + shippingFee, in Rial. This is what the customer pays.
+  total            Int              @default(0)
+  /// Parcel weight used for the shipping quote.
+  weightGrams      Int              @default(0)
+  trackingCode     String?          @db.VarChar(100)
+  trackingUrl      String?          @db.Text
 
-  cancelledAt DateTime?
-  paidAt      DateTime?
-  completedAt DateTime?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
+  items         order_item[]
+  payments      payment[]
+  statusHistory order_status_event[]
+
+  cancelledAt  DateTime?
+  paidAt       DateTime?
+  processingAt DateTime?
+  shippedAt    DateTime?
+  completedAt  DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
 
   @@index([userId, created_at])
   @@index([status, created_at])
@@ -497,8 +516,8 @@ model comment {
   product   product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   /// Exactly one of userId / adminId is set — who wrote the comment.
-  userId Int?
-  user   user? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  Int?
+  user    user?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   adminId Int?
   admin   admin? @relation(fields: [adminId], references: [id], onDelete: Cascade)
 
@@ -569,4 +588,58 @@ model notification {
   @@index([audience, recipientId, created_at])
   @@index([audience, recipientId, readAt])
   @@index([context, type])
+}
+
+// ---------------------------------------------------------------------------
+// Shipping
+// ---------------------------------------------------------------------------
+
+/// A delivery option the customer picks at checkout. The fee is
+/// base_fee + per_kg_fee for every started kilogram, or 0 when the basket
+/// subtotal reaches free_above.
+model shipping_method {
+  id          Int     @id @default(autoincrement())
+  name        String
+  code        String  @unique
+  description String? @db.Text
+
+  /// Rial.
+  base_fee   Int
+  /// Rial per started kilogram of parcel weight.
+  per_kg_fee Int  @default(0)
+  /// Basket subtotal (Rial) at or above which shipping is free; null = never.
+  free_above Int?
+
+  min_days Int?
+  max_days Int?
+
+  /// Province ids served; null = every province.
+  province_ids          Json?
+  /// e.g. "https://tracking.post.ir/?id={code}"; {code} becomes the tracking code.
+  tracking_url_template String? @db.Text
+
+  is_active Boolean @default(true)
+  position  Int     @default(0)
+
+  orders order[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([is_active, position])
+}
+
+/// Append-only log of order status changes.
+model order_status_event {
+  id      Int   @id @default(autoincrement())
+  orderId Int
+  order   order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  note       String?      @db.Text
+
+  created_at DateTime @default(now())
+
+  @@index([orderId, created_at])
 }

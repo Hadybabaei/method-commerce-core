@@ -21,6 +21,39 @@ export interface OrderPaymentView {
   gatewayRef: string | null
 }
 
+/** A shipping method as offered at checkout, with its fee for this basket. */
+export interface ShippingOptionView {
+  id: number
+  name: string
+  code: string
+  description: string | null
+  fee: number
+  minDays: number | null
+  maxDays: number | null
+}
+
+export interface OrderShippingView {
+  /** Null when the store had no shipping methods configured at checkout. */
+  method: {
+    id: number
+    name: string
+    code: string
+    minDays: number | null
+    maxDays: number | null
+  } | null
+  fee: number
+  weightGrams: number
+  trackingCode: string | null
+  trackingUrl: string | null
+}
+
+export interface OrderStatusEventView {
+  from: OrderStatus | null
+  to: OrderStatus
+  note: string | null
+  at: Date
+}
+
 export interface OrderView {
   id: number
   number: string
@@ -29,13 +62,21 @@ export interface OrderView {
   paymentMethod: PaymentMethod
   itemCount: number
   subtotal: number
+  shippingFee: number
+  /** subtotal + shippingFee; what the customer pays. */
+  total: number
+  shipping: OrderShippingView
   note: string | null
   address: AddressSnapshot
   items: OrderItemView[]
   payment: OrderPaymentView | null
   canCancel: boolean
+  /** Oldest first. */
+  statusHistory: OrderStatusEventView[]
   cancelledAt: Date | null
   paidAt: Date | null
+  processingAt: Date | null
+  shippedAt: Date | null
   completedAt: Date | null
   createdAt: Date
 }
@@ -51,6 +92,8 @@ export interface CreateOrderCommand {
   userId: number
   addressId: number
   paymentMethod?: PaymentMethod
+  /** Omitted = the cheapest method that delivers to the address. */
+  shippingMethodId?: number | null
   note?: string | null
 }
 
@@ -67,6 +110,11 @@ export interface CheckoutPreviewView {
   items: CheckoutPreviewItemView[]
   itemCount: number
   subtotal: number
+  weightGrams: number
+  /** Methods that deliver to the address, cheapest first. Empty when the store has none. */
+  shippingMethods: ShippingOptionView[]
+  /** The method the order will use; null when the store has none. */
+  shippingMethodId: number | null
   shippingFee: number
   total: number
   paymentMethod: PaymentMethod
@@ -110,4 +158,21 @@ export interface ListOrdersQuery {
   createdTo?: Date
   limit?: number
   offset?: number
+}
+
+/** Admin view of a shipping method. Money in Rial. */
+export interface ShippingMethodView {
+  id: number
+  name: string
+  code: string
+  description: string | null
+  baseFee: number
+  perKgFee: number
+  freeAbove: number | null
+  minDays: number | null
+  maxDays: number | null
+  provinceIds: number[] | null
+  trackingUrlTemplate: string | null
+  isActive: boolean
+  position: number
 }

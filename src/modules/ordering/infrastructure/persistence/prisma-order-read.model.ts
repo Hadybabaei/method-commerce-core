@@ -4,6 +4,7 @@ import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.
 import { AddressSnapshot } from '../../domain/entities/order.aggregate'
 import { OrderProductSnapshot } from '../../domain/entities/order-item.entity'
 import { REFUND_REQUIRED_PREFIX } from '../../domain/entities/payment.entity'
+import { ShippingSnapshot } from '../../domain/entities/shipping-method.entity'
 import { OrderStatus, PaymentMethod, PaymentStatus } from '../../domain/enums/order.enums'
 import {
   ListOrdersQuery,
@@ -21,7 +22,7 @@ export class PrismaOrderReadModel implements OrderReadModel {
   async findById(id: number): Promise<OrderView | null> {
     const record = await this.prisma.order.findUnique({
       where: { id },
-      include: { items: { orderBy: { id: 'asc' } }, payments: { orderBy: { id: 'desc' } } },
+      include: orderInclude,
     })
 
     return record ? toView(record) : null
@@ -36,7 +37,7 @@ export class PrismaOrderReadModel implements OrderReadModel {
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
         where,
-        include: { items: { orderBy: { id: 'asc' } }, payments: { orderBy: { id: 'desc' } } },
+        include: orderInclude,
         orderBy: { created_at: 'desc' },
         take: query.limit,
         skip: query.offset,
@@ -52,9 +53,13 @@ export class PrismaOrderReadModel implements OrderReadModel {
   }
 }
 
-type OrderRecord = Prisma.orderGetPayload<{
-  include: { items: true; payments: true }
-}>
+const orderInclude = {
+  items: { orderBy: { id: 'asc' } },
+  payments: { orderBy: { id: 'desc' } },
+  statusHistory: { orderBy: [{ created_at: 'asc' }, { id: 'asc' }] },
+} satisfies Prisma.orderInclude
+
+type OrderRecord = Prisma.orderGetPayload<{ include: typeof orderInclude }>
 
 function toWhere(query: ListOrdersQuery): Prisma.orderWhereInput {
   const where: Prisma.orderWhereInput = {}
@@ -96,6 +101,7 @@ function toView(record: OrderRecord): OrderView {
 
   const payment = toPaymentView(record.payments[0] ?? null)
   const captured = payment?.status === PaymentStatus.Succeeded
+  const shippingMethod = record.shippingSnapshot as unknown as ShippingSnapshot | null
 
   return {
     id: record.id,
@@ -105,21 +111,44 @@ function toView(record: OrderRecord): OrderView {
     paymentMethod: record.paymentMethod as PaymentMethod,
     itemCount: record.itemCount,
     subtotal: record.subtotal,
+    shippingFee: record.shippingFee,
+    total: record.total,
+    shipping: {
+      method: shippingMethod
+        ? {
+            id: shippingMethod.methodId,
+            name: shippingMethod.name,
+            code: shippingMethod.code,
+            minDays: shippingMethod.minDays,
+            maxDays: shippingMethod.maxDays,
+          }
+        : null,
+      fee: record.shippingFee,
+      weightGrams: record.weightGrams,
+      trackingCode: record.trackingCode,
+      trackingUrl: record.trackingUrl,
+    },
     note: record.note,
     address: record.addressSnapshot as unknown as AddressSnapshot,
     items,
     payment,
     canCancel: record.status === OrderStatus.Pending && !captured,
+    statusHistory: record.statusHistory.map((event) => ({
+      from: event.fromStatus as OrderStatus | null,
+      to: event.toStatus as OrderStatus,
+      note: event.note,
+      at: event.created_at,
+    })),
     cancelledAt: record.cancelledAt,
     paidAt: record.paidAt,
+    processingAt: record.processingAt,
+    shippedAt: record.shippedAt,
     completedAt: record.completedAt,
     createdAt: record.created_at,
   }
 }
 
-function toPaymentView(
-  record: OrderRecord['payments'][number] | null
-): OrderPaymentView | null {
+function toPaymentView(record: OrderRecord['payments'][number] | null): OrderPaymentView | null {
   if (!record) {
     return null
   }

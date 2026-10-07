@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -19,7 +20,9 @@ import {
   GetOrderUseCase,
   ListOrdersUseCase,
 } from '../../application/use-cases/get-list-orders.use-case'
-import { AdminListOrdersQueryRequest } from '../dto/order.request'
+import { ProcessOrderUseCase } from '../../application/use-cases/process-order.use-case'
+import { ShipOrderUseCase } from '../../application/use-cases/ship-order.use-case'
+import { AdminListOrdersQueryRequest, ShipOrderRequest } from '../dto/order.request'
 import { OrderResponse } from '../dto/order.response'
 
 @ApiTags('Admin orders')
@@ -31,6 +34,8 @@ export class AdminOrdersController {
     private readonly cancelOrderUseCase: CancelOrderUseCase,
     private readonly confirmCodPaymentUseCase: ConfirmCodPaymentUseCase,
     private readonly completeOrderUseCase: CompleteOrderUseCase,
+    private readonly processOrderUseCase: ProcessOrderUseCase,
+    private readonly shipOrderUseCase: ShipOrderUseCase,
     private readonly getOrderUseCase: GetOrderUseCase,
     private readonly listOrdersUseCase: ListOrdersUseCase
   ) {}
@@ -100,11 +105,54 @@ export class AdminOrdersController {
     return this.confirmCodPaymentUseCase.execute({ orderId })
   }
 
+  @Post(':id/process')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Start preparing a paid order',
+    description: 'PAID → PROCESSING. Texts the customer. Repeating it is a no-op.',
+  })
+  @ApiParam({ name: 'id', example: 9 })
+  @ApiOkResponse({ type: OrderResponse, description: 'The processing order.' })
+  @ApiErrorResponses(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+    HttpStatus.UNPROCESSABLE_ENTITY
+  )
+  process(@Param('id', ParseIntPipe) orderId: number) {
+    return this.processOrderUseCase.execute({ orderId })
+  }
+
+  @Post(':id/ship')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Hand a paid or processing order to the carrier',
+    description:
+      "PAID or PROCESSING → SHIPPED with an optional tracking code. Without tracking_url, the shipping method's template builds one. On a SHIPPED order this only corrects the tracking details.",
+  })
+  @ApiParam({ name: 'id', example: 9 })
+  @ApiOkResponse({ type: OrderResponse, description: 'The shipped order.' })
+  @ApiErrorResponses(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+    HttpStatus.UNPROCESSABLE_ENTITY
+  )
+  ship(@Param('id', ParseIntPipe) orderId: number, @Body() body: ShipOrderRequest) {
+    return this.shipOrderUseCase.execute({
+      orderId,
+      trackingCode: body.tracking_code,
+      trackingUrl: body.tracking_url,
+    })
+  }
+
   @Post(':id/complete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Mark a paid order as delivered',
-    description: 'Only PAID orders can be completed.',
+    summary: 'Mark an order as delivered',
+    description: 'PAID, PROCESSING or SHIPPED → COMPLETED.',
   })
   @ApiParam({ name: 'id', example: 9 })
   @ApiOkResponse({ type: OrderResponse, description: 'The completed order.' })

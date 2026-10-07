@@ -10,6 +10,7 @@ import {
 } from '@modules/basket/domain/repositories/basket.repository'
 import { OrderingJobsConfig } from '@config/ordering-jobs.config'
 import { UseCase } from '@shared/application/use-case'
+import { Money } from '@shared/domain/value-objects/money'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
 import { isUniqueConstraintError } from '@shared/infrastructure/persistence/prisma/prisma-errors'
 import { Order } from '../../domain/entities/order.aggregate'
@@ -124,12 +125,20 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
             throw new EmptyBasketError()
           }
 
-          const orderItems = await this.assembler.buildItems(
+          const { items: orderItems, weightGrams } = await this.assembler.buildItems(
             basket.getItems().map((item) => ({
               variantId: item.variantId,
               quantity: item.quantityValue,
             }))
           )
+
+          const subtotal = orderItems.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
+          const shipping = await this.assembler.quoteShipping({
+            provinceId: addressView.province.id,
+            subtotal,
+            weightGrams,
+            shippingMethodId: command.shippingMethodId,
+          })
 
           const sequence = await this.orders.nextDailySequence(dayKey, tx)
           const number = `ORD-${dayKey}-${String(sequence).padStart(5, '0')}`
@@ -140,6 +149,7 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
             paymentMethod: command.paymentMethod ?? PaymentMethod.CashOnDelivery,
             items: orderItems,
             addressSnapshot: addressView,
+            shipping: CheckoutAssembler.toOrderShipping(shipping.selected, weightGrams),
             note: command.note,
           })
 

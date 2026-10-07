@@ -2,15 +2,26 @@ import { Inject, Injectable } from '@nestjs/common'
 import { CLOCK, Clock } from '@shared/application/ports/clock.port'
 import { UseCase } from '@shared/application/use-case'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
+import { OrderStatus } from '../../domain/enums/order.enums'
 import { OrderNotFoundError } from '../../domain/errors/ordering.errors'
 import { ORDER_REPOSITORY, OrderRepository } from '../../domain/repositories/order.repository'
 import { OrderView } from '../dto/views'
 import { ORDER_READ_MODEL, OrderReadModel } from '../ports/order-read.port'
 import { OrderNotificationService } from '../order-notification.service'
-import { OrderStatus } from '../../domain/enums/order.enums'
 
+export interface ShipOrderCommand {
+  orderId: number
+  trackingCode?: string | null
+  /** Overrides the URL built from the shipping method's template. */
+  trackingUrl?: string | null
+}
+
+/**
+ * Operator hands the parcel to the carrier. On an already shipped order this
+ * only corrects the tracking details and does not notify the customer again.
+ */
 @Injectable()
-export class CompleteOrderUseCase implements UseCase<{ orderId: number }, OrderView> {
+export class ShipOrderUseCase implements UseCase<ShipOrderCommand, OrderView> {
   constructor(
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(ORDER_READ_MODEL) private readonly orderReads: OrderReadModel,
@@ -19,21 +30,20 @@ export class CompleteOrderUseCase implements UseCase<{ orderId: number }, OrderV
     private readonly prisma: PrismaService
   ) {}
 
-  async execute(command: { orderId: number }): Promise<OrderView> {
-    const { order, justCompleted } = await this.prisma.$transaction(async (tx) => {
+  async execute(command: ShipOrderCommand): Promise<OrderView> {
+    const { order, justShipped } = await this.prisma.$transaction(async (tx) => {
       const locked = await this.orders.findByIdForUpdate(command.orderId, tx)
       if (!locked) {
         throw new OrderNotFoundError(command.orderId)
       }
 
-      if (locked.status === OrderStatus.Completed) {
-        return { order: locked, justCompleted: false }
-      }
-
       const before = locked.status
-      locked.complete(this.clock.now())
+      locked.ship(this.clock.now(), {
+        trackingCode: command.trackingCode,
+        trackingUrl: command.trackingUrl,
+      })
       const saved = await this.orders.saveIfStatus(locked, before, tx)
-      return { order: saved, justCompleted: true }
+      return { order: saved, justShipped: before !== OrderStatus.Shipped }
     })
 
     const view = await this.orderReads.findById(order.id)
@@ -41,8 +51,8 @@ export class CompleteOrderUseCase implements UseCase<{ orderId: number }, OrderV
       throw new OrderNotFoundError(order.id)
     }
 
-    if (justCompleted) {
-      await this.orderNotifications.completed(order)
+    if (justShipped) {
+      await this.orderNotifications.shipped(order)
     }
 
     return view

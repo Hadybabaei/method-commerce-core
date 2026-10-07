@@ -19,6 +19,20 @@ import { HandlePaymentCallbackUseCase } from './application/use-cases/handle-pay
 import { InitiatePaymentUseCase } from './application/use-cases/initiate-payment.use-case'
 import { InquireOpenPaymentsUseCase } from './application/use-cases/inquire-open-payments.use-case'
 import { PreviewCheckoutUseCase } from './application/use-cases/preview-checkout.use-case'
+import { ProcessOrderUseCase } from './application/use-cases/process-order.use-case'
+import { ShipOrderUseCase } from './application/use-cases/ship-order.use-case'
+import {
+  CreateShippingMethodUseCase,
+  DeleteShippingMethodUseCase,
+  ListShippingMethodsUseCase,
+  UpdateShippingMethodUseCase,
+} from './application/use-cases/shipping-methods.use-cases'
+import { ORDER_SMS_DISPATCHER } from './application/ports/order-sms.port'
+import { SHIPPING_METHOD_REPOSITORY } from './domain/repositories/shipping-method.repository'
+import { PrismaShippingMethodRepository } from './infrastructure/persistence/prisma-shipping-method.repository'
+import { DelegatingOrderSmsDispatcher } from './infrastructure/sms/delegating-order-sms.dispatcher'
+import { DirectOrderSmsDispatcher } from './infrastructure/sms/direct-order-sms.dispatcher'
+import { AdminShippingMethodsController } from './presentation/controllers/admin-shipping-methods.controller'
 import { CheckoutAssembler } from './application/services/checkout-assembler.service'
 import { INVENTORY_RESERVATION, ORDER_REPOSITORY } from './domain/repositories/order.repository'
 import { PAYMENT_REPOSITORY } from './domain/repositories/payment.repository'
@@ -39,6 +53,12 @@ const useCases = [
   CancelOrderUseCase,
   ConfirmCodPaymentUseCase,
   CompleteOrderUseCase,
+  ProcessOrderUseCase,
+  ShipOrderUseCase,
+  ListShippingMethodsUseCase,
+  CreateShippingMethodUseCase,
+  UpdateShippingMethodUseCase,
+  DeleteShippingMethodUseCase,
   GetOrderUseCase,
   ListOrdersUseCase,
   InitiatePaymentUseCase,
@@ -53,13 +73,21 @@ const useCases = [
  */
 @Module({
   imports: [IdentityModule, BasketModule, CatalogModule, AddressingModule, NotificationsModule],
-  controllers: [OrdersController, AdminOrdersController, PaymentsController],
+  controllers: [
+    OrdersController,
+    AdminOrdersController,
+    AdminShippingMethodsController,
+    PaymentsController,
+  ],
   providers: [
     { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository },
     { provide: ORDER_READ_MODEL, useClass: PrismaOrderReadModel },
     { provide: PAYMENT_REPOSITORY, useClass: PrismaPaymentRepository },
     { provide: INVENTORY_RESERVATION, useClass: PrismaInventoryReservationService },
     { provide: PAYMENT_GATEWAY, useClass: ZibalPaymentGateway },
+    { provide: SHIPPING_METHOD_REPOSITORY, useClass: PrismaShippingMethodRepository },
+    DirectOrderSmsDispatcher,
+    { provide: ORDER_SMS_DISPATCHER, useClass: DelegatingOrderSmsDispatcher },
     { provide: ORDER_PAYMENT_TIMEOUT_SCHEDULER, useClass: DelegatingOrderPaymentTimeoutScheduler },
     OrderNotificationService,
     CheckoutAssembler,
