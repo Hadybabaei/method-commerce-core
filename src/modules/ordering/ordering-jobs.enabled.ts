@@ -16,6 +16,10 @@ export function assertProductionOrderingJobs(): void {
   if (process.env.NODE_ENV !== 'production') {
     return
   }
+  // Demo and preview hosts (serverless) run without workers on purpose.
+  if (process.env.ORDERING_JOBS_OPTIONAL === 'true') {
+    return
+  }
   if (!isOrderingJobsEnabled()) {
     throw new Error(
       'ONLINE checkout requires Redis/BullMQ in production. Unset REDIS_ENABLED=false or disable production until jobs can run.'

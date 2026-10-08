@@ -34,9 +34,11 @@ export class SearchIndexerService implements OnApplicationBootstrap, OnModuleDes
     private readonly configService: ConfigService
   ) {}
 
-  onApplicationBootstrap(): void {
+  async onApplicationBootstrap(): Promise<void> {
     const config = this.configService.getOrThrow<SearchConfig>('search')
-    if (config.reindexOnBoot || config.driver === 'memory') this.scheduleRebuild()
+    // An in-memory index starts empty: build it before the first request is served.
+    if (config.driver === 'memory') await this.rebuildNow()
+    else if (config.reindexOnBoot) this.scheduleRebuild()
     if (config.refreshMinutes > 0) {
       this.refresh = setInterval(() => this.scheduleRebuild(), config.refreshMinutes * 60_000)
       this.refresh.unref()

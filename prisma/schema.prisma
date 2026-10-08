@@ -922,3 +922,12 @@ model stock_alert {
   @@unique([userId, variantId])
   @@index([variantId, notified_at])
 }
+
+/// Login codes when Redis is not available (serverless hosts). One row per phone.
+model otp_challenge {
+  phone_number String   @id @db.VarChar(20)
+  code         String   @db.VarChar(10)
+  expires_at   DateTime
+
+  @@index([expires_at])
+}

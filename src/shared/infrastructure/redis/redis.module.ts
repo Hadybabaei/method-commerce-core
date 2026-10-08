@@ -1,3 +1,5 @@
+import { PrismaOtpChallengeStore } from '../persistence/prisma/prisma-otp-challenge.store'
+import { PrismaService } from '../persistence/prisma/prisma.service'
 import { RESPONSE_CACHE } from '@shared/application/ports/response-cache.port'
 import { InMemoryResponseCache, RedisResponseCache } from '../cache/response-caches'
 import { Global, Logger, Module, OnModuleDestroy } from '@nestjs/common'
@@ -41,9 +43,13 @@ import { REDIS_CLIENT } from './redis.tokens'
     },
     {
       provide: OTP_CHALLENGE_STORE,
-      inject: [REDIS_CLIENT],
-      useFactory: (client: Redis | null) =>
-        client ? new RedisOtpChallengeStore(client) : new InMemoryOtpChallengeStore(),
+      inject: [REDIS_CLIENT, ConfigService, PrismaService],
+      useFactory: (client: Redis | null, configService: ConfigService, prisma: PrismaService) => {
+        if (client) return new RedisOtpChallengeStore(client)
+        return configService.getOrThrow<RedisConfig>('redis').otpStore === 'database'
+          ? new PrismaOtpChallengeStore(prisma)
+          : new InMemoryOtpChallengeStore()
+      },
     },
     {
       provide: RESPONSE_CACHE,

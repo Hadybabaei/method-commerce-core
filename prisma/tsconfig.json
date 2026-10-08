@@ -10,5 +10,5 @@
     "types": ["node"],
     "rootDir": "."
   },
-  "include": ["seed.ts"]
+  "include": ["seed.ts", "seed-demo.ts"]
 }
