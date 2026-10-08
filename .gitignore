@@ -13,3 +13,6 @@ uploads/
 *.tsbuildinfo
 vercel-static/
 .vercel
+
+.vercel
+.env*
