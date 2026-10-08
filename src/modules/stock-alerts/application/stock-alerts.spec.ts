@@ -36,7 +36,7 @@ function variant(overrides: Partial<VariantForAlert> = {}): VariantForAlert {
 
 function fakeStore(due: DueAlert[] = []): jest.Mocked<StockAlertStore> {
   const waiting = new Set(due.map((alert) => alert.alertId))
-  return {
+  const store = {
     variant: jest.fn(async () => variant()),
     subscribe: jest.fn(async () => undefined),
     unsubscribe: jest.fn(async () => true),
@@ -48,6 +48,7 @@ function fakeStore(due: DueAlert[] = []): jest.Mocked<StockAlertStore> {
     }),
     variantsOfProducts: jest.fn(async () => [5, 6]),
   }
+  return store as unknown as jest.Mocked<StockAlertStore>
 }
 
 const alert = (alertId: number): DueAlert => ({
@@ -96,7 +97,7 @@ describe('StockAlertNotifier', () => {
     const store = fakeStore([alert(1), alert(2)])
     const sms: jest.Mocked<SmsSender> = {
       sendOtp: jest.fn(),
-      send: jest.fn(async (phone: string) => {
+      send: jest.fn(async (phone: string, _text: string) => {
         if (phone.endsWith('2')) throw new Error('kavenegar down')
       }),
     }

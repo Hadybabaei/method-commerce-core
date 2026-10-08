@@ -1,3 +1,4 @@
+import { CachedRead } from '@shared/presentation/interceptors/cached-read.interceptor'
 import { Controller, Get, HttpStatus, Param } from '@nestjs/common'
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
 import { ApiErrorResponses } from '@shared/presentation/swagger'
@@ -16,6 +17,7 @@ export class BrandsController {
   ) {}
 
   @Get()
+  @CachedRead('catalog', 300)
   @ApiOperation({ summary: 'List all brands', description: 'Ordered by title.' })
   @ApiOkResponse({ type: [BrandResponse], description: 'Every brand.' })
   list() {
@@ -23,6 +25,7 @@ export class BrandsController {
   }
 
   @Get(':slug')
+  @CachedRead('catalog', 300)
   @ApiOperation({ summary: 'Get one brand by slug' })
   @ApiParam({ name: 'slug', example: 'bosch' })
   @ApiOkResponse({ type: BrandResponse, description: 'The brand.' })

@@ -1,3 +1,4 @@
+import { CatalogFreshnessListener } from './infrastructure/catalog-freshness.listener'
 import { APP_INTERCEPTOR } from '@nestjs/core'
 import { CatalogChangeInterceptor } from './presentation/catalog-change.interceptor'
 import { CATALOG_SEO_READ_MODEL } from './application/ports/catalog-seo-read.port'
@@ -94,6 +95,7 @@ const useCases = [
   ],
   providers: [
     { provide: CATEGORY_REPOSITORY, useClass: PrismaCategoryRepository },
+    CatalogFreshnessListener,
     { provide: APP_INTERCEPTOR, useClass: CatalogChangeInterceptor },
     { provide: BRAND_REPOSITORY, useClass: PrismaBrandRepository },
     { provide: PRODUCT_REPOSITORY, useClass: PrismaProductRepository },

@@ -1,3 +1,4 @@
+import { CachedRead } from '@shared/presentation/interceptors/cached-read.interceptor'
 import { Controller, Get, HttpStatus, Param, Query } from '@nestjs/common'
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
 import { ApiErrorResponses, ApiPaginatedResponse } from '@shared/presentation/swagger'
@@ -16,6 +17,7 @@ export class ProductsController {
   ) {}
 
   @Get()
+  @CachedRead('catalog', 60)
   @ApiOperation({
     summary: 'List published products',
     description:
@@ -43,6 +45,7 @@ export class ProductsController {
   }
 
   @Get(':slug')
+  @CachedRead('catalog', 60)
   @ApiOperation({
     summary: 'Get one published product with its options and variants',
     description: 'Unpublished products return 404 here, as if they did not exist.',

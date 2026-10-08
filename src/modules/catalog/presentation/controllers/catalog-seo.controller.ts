@@ -1,3 +1,4 @@
+import { CachedRead } from '@shared/presentation/interceptors/cached-read.interceptor'
 import { Controller, Get, HttpStatus, Param, ParseEnumPipe } from '@nestjs/common'
 import { ApiOkResponse, ApiOperation, ApiParam, ApiProperty, ApiTags } from '@nestjs/swagger'
 import { ApiErrorResponses } from '@shared/presentation/swagger'
@@ -54,6 +55,7 @@ export class CatalogSeoController {
   ) {}
 
   @Get('slug-redirects/:type/:slug')
+  @CachedRead('catalog', 300)
   @ApiOperation({
     summary: 'Find where an old catalog slug moved',
     description:
@@ -71,6 +73,7 @@ export class CatalogSeoController {
   }
 
   @Get('sitemap')
+  @CachedRead('catalog', 300)
   @ApiOperation({
     summary: 'Every public catalog URL for sitemap.xml',
     description: 'Slugs and last-modified dates for published products, categories and brands.',

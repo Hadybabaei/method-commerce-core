@@ -1,3 +1,4 @@
+import { CachedRead } from '@shared/presentation/interceptors/cached-read.interceptor'
 import {
   Controller,
   Get,
@@ -37,6 +38,7 @@ export class SearchController {
   ) {}
 
   @Get('search')
+  @CachedRead('catalog', 60)
   @ApiOperation({
     summary: 'Search published products with facets',
     description:
@@ -62,6 +64,7 @@ export class SearchController {
   }
 
   @Get('search/suggest')
+  @CachedRead('catalog', 60)
   @ApiOperation({
     summary: 'Type-ahead: up to 6 products and 3 categories',
     description: 'Empty under 2 characters.',
@@ -72,6 +75,7 @@ export class SearchController {
   }
 
   @Get('products/:slug/related')
+  @CachedRead('catalog', 60)
   @ApiOperation({ summary: 'In-stock best sellers from the same category, then the same brand' })
   @ApiParam({ name: 'slug' })
   @ApiOkResponse({ type: [SearchHitResponse] })
@@ -81,6 +85,7 @@ export class SearchController {
   }
 
   @Get('products/:slug/bought-together')
+  @CachedRead('catalog', 60)
   @ApiOperation({ summary: 'In-stock products most often bought in the same order' })
   @ApiParam({ name: 'slug' })
   @ApiOkResponse({ type: [SearchHitResponse] })

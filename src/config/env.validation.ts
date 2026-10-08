@@ -122,6 +122,14 @@ class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  STOREFRONT_REVALIDATE_URL?: string
+
+  @IsString()
+  @IsOptional()
+  STOREFRONT_REVALIDATE_SECRET?: string
+
+  @IsString()
+  @IsOptional()
   MEILISEARCH_API_KEY?: string
 
   @IsBooleanString()
