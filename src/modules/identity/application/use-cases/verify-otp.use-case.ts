@@ -37,6 +37,7 @@ export class VerifyOtpUseCase implements UseCase<VerifyOtpCommand, Authenticated
     if (!user) {
       throw new UserNotFoundError(phone.masked)
     }
+    user.ensureNotBlocked()
 
     const result = await this.otpStore.consume(phone.value, code)
 

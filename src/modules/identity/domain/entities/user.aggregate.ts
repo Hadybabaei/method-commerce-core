@@ -2,6 +2,7 @@ import { AggregateRoot } from '@shared/domain/aggregate-root.base'
 import { UNSAVED_ID } from '@shared/domain/identifier'
 import { CUSTOMER_ROLE_TO_USER_TYPE, CustomerRole, UserType } from '../enums/roles.enum'
 import {
+  AccountBlockedError,
   AccountDisabledError,
   InvalidOtpError,
   OtpExpiredError,
@@ -35,6 +36,8 @@ export interface UserProps {
   authLevel: number
   /** Becomes true the first time the phone number is proven via OTP. */
   activated: boolean
+  /** Set when an admin blocks the customer. */
+  blockedAt: Date | null
   avatar: string | null
   otp: Otp | null
   refreshToken: string | null
@@ -64,6 +67,7 @@ export class User extends AggregateRoot {
       type: UserType.Normal,
       authLevel: AuthLevel.Unverified,
       activated: false,
+      blockedAt: null,
       avatar: null,
       otp: null,
       refreshToken: null,
@@ -140,9 +144,29 @@ export class User extends AggregateRoot {
    * point has to re-check this.
    */
   ensureActive(): void {
+    this.ensureNotBlocked()
     if (!this.props.activated) {
       throw new AccountDisabledError()
     }
+  }
+
+  ensureNotBlocked(): void {
+    if (this.props.blockedAt) {
+      throw new AccountBlockedError()
+    }
+  }
+
+  block(now: Date): void {
+    if (this.props.blockedAt) return
+    this.props = { ...this.props, blockedAt: now, refreshToken: null }
+  }
+
+  unblock(): void {
+    this.props = { ...this.props, blockedAt: null }
+  }
+
+  get blockedAt(): Date | null {
+    return this.props.blockedAt
   }
 
   deactivate(): void {

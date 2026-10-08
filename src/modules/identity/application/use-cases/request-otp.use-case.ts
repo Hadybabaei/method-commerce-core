@@ -43,6 +43,9 @@ export class RequestOtpUseCase implements UseCase<RequestOtpCommand, OtpRequeste
     const existing = await this.users.findByPhoneNumber(phone)
     if (!existing) {
       await this.users.save(User.register(phone, now))
+    } else {
+      // No code is sent to a blocked customer.
+      existing.ensureNotBlocked()
     }
 
     const code = this.otpGenerator.generate()

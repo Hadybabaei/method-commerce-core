@@ -22,6 +22,7 @@ export function toDomainUser(record: UserRecord): User {
     type: record.type as UserType,
     authLevel: record.auth_level,
     activated: record.account_status ?? false,
+    blockedAt: record.blocked_at,
     avatar: record.avatar,
     otp:
       record.otp_code && record.otp_expiry
@@ -58,6 +59,7 @@ export function toUserWriteData(user: User) {
     type: user.type as UserType,
     auth_level: user.authLevel,
     account_status: user.isActivated,
+    blocked_at: user.blockedAt,
     avatar: user.avatar,
     otp_code: user.otp?.code ?? null,
     otp_expiry: user.otp?.expiresAt ?? null,
