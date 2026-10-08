@@ -26,6 +26,15 @@ export class CategoryResponse implements CategoryView {
   @ApiProperty({ nullable: true })
   description: string | null
 
+  @ApiProperty({ nullable: true, description: 'Search-engine title; null = use the title.' })
+  seoTitle: string | null
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Search-engine description; null = use the description.',
+  })
+  seoDescription: string | null
+
   @ApiProperty({ example: 1, nullable: true, description: 'Null for a root category.' })
   parentId: number | null
 
@@ -59,6 +68,15 @@ export class BrandResponse implements BrandView {
 
   @ApiProperty({ example: 'ابزار آلمانی', nullable: true })
   description: string | null
+
+  @ApiProperty({ nullable: true, description: 'Search-engine title; null = use the title.' })
+  seoTitle: string | null
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Search-engine description; null = use the description.',
+  })
+  seoDescription: string | null
 }
 
 /** Category and brand as they appear nested inside a product. */
@@ -139,6 +157,14 @@ export class ProductVariantResponse implements ProductVariantView {
   availableQuantity: number
 }
 
+export class ProductRatingResponse {
+  @ApiProperty({ example: 4.3, description: 'One decimal.' })
+  average: number
+
+  @ApiProperty({ example: 12 })
+  count: number
+}
+
 export class ProductSummaryResponse implements ProductSummaryView {
   @ApiProperty({ example: 1 })
   id: number
@@ -174,6 +200,13 @@ export class ProductSummaryResponse implements ProductSummaryView {
   @ApiProperty({ example: 3_000_000, nullable: true, description: 'Dearest active variant.' })
   priceTo: number | null
 
+  @ApiProperty({
+    type: ProductRatingResponse,
+    nullable: true,
+    description: 'Approved customer ratings; null until the product has one.',
+  })
+  rating: ProductRatingResponse | null
+
   @ApiProperty({ example: '2026-09-11T17:12:16.090Z' })
   createdAt: Date
 }
@@ -182,11 +215,23 @@ export class ProductDetailResponse extends ProductSummaryResponse implements Pro
   @ApiProperty({ nullable: true })
   description: string | null
 
+  @ApiProperty({ nullable: true, description: 'Search-engine title; null = use the title.' })
+  seoTitle: string | null
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Search-engine description; null = use the description.',
+  })
+  seoDescription: string | null
+
   @ApiProperty({ nullable: true })
   shortDescription: string | null
 
   @ApiProperty({ example: 1800, description: 'Shipping weight in grams.' })
   weightGrams: number
+
+  @ApiProperty({ example: false, description: 'Exempt goods carry no VAT.' })
+  taxExempt: boolean
 
   @ApiProperty({ type: [ProductImageResponse] })
   images: ProductImageResponse[]

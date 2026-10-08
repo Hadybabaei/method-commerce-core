@@ -1,3 +1,5 @@
+import { RESPONSE_CACHE } from '@shared/application/ports/response-cache.port'
+import { InMemoryResponseCache, RedisResponseCache } from '../cache/response-caches'
 import { Global, Logger, Module, OnModuleDestroy } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { RedisConfig } from '@config/redis.config'
@@ -44,6 +46,12 @@ import { REDIS_CLIENT } from './redis.tokens'
         client ? new RedisOtpChallengeStore(client) : new InMemoryOtpChallengeStore(),
     },
     {
+      provide: RESPONSE_CACHE,
+      inject: [REDIS_CLIENT],
+      useFactory: (client: Redis | null) =>
+        client ? new RedisResponseCache(client) : new InMemoryResponseCache(),
+    },
+    {
       provide: 'RedisShutdown',
       inject: [REDIS_CLIENT],
       useFactory: (client: Redis | null) =>
@@ -56,6 +64,6 @@ import { REDIS_CLIENT } from './redis.tokens'
         })(),
     },
   ],
-  exports: [REDIS_CLIENT, OTP_CHALLENGE_STORE],
+  exports: [REDIS_CLIENT, OTP_CHALLENGE_STORE, RESPONSE_CACHE],
 })
 export class RedisModule {}

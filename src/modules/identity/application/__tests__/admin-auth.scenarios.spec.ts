@@ -50,7 +50,9 @@ describe('Admin authentication scenarios', () => {
       const h = createAdminAuthHarness()
       await h.seedAdmin({ email, password, active: false })
 
-      await expect(h.login.execute({ email, password })).rejects.toBeInstanceOf(AccountDisabledError)
+      await expect(h.login.execute({ email, password })).rejects.toBeInstanceOf(
+        AccountDisabledError
+      )
     })
   })
 

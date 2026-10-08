@@ -3,6 +3,8 @@ export interface CreateCategoryCommand {
   slug?: string
   icon?: string | null
   description?: string | null
+  seoTitle?: string | null
+  seoDescription?: string | null
   parentId?: number | null
   position?: number
 }
@@ -13,6 +15,8 @@ export interface UpdateCategoryCommand {
   slug?: string
   icon?: string | null
   description?: string | null
+  seoTitle?: string | null
+  seoDescription?: string | null
   /** Present in the payload only when the category is being re-parented. */
   parentId?: number | null
   position?: number
@@ -23,6 +27,8 @@ export interface CreateBrandCommand {
   slug?: string
   logo?: string | null
   description?: string | null
+  seoTitle?: string | null
+  seoDescription?: string | null
 }
 
 export interface UpdateBrandCommand {
@@ -31,6 +37,8 @@ export interface UpdateBrandCommand {
   slug?: string
   logo?: string | null
   description?: string | null
+  seoTitle?: string | null
+  seoDescription?: string | null
 }
 
 export interface ProductImageCommand {
@@ -43,9 +51,12 @@ export interface CreateProductCommand {
   slug?: string
   subTitle?: string | null
   description?: string | null
+  seoTitle?: string | null
+  seoDescription?: string | null
   shortDescription?: string | null
   published?: boolean
   weightGrams?: number
+  taxExempt?: boolean
   categoryId?: number | null
   brandId?: number | null
   images?: ProductImageCommand[]
@@ -57,9 +68,12 @@ export interface UpdateProductCommand {
   slug?: string
   subTitle?: string | null
   description?: string | null
+  seoTitle?: string | null
+  seoDescription?: string | null
   shortDescription?: string | null
   published?: boolean
   weightGrams?: number
+  taxExempt?: boolean
   categoryId?: number | null
   brandId?: number | null
   /** When present, replaces the whole image list. */

@@ -7,6 +7,7 @@ export function toDomainFavorite(record: FavoriteRecord): Favorite {
   return Favorite.fromPersistence(record.id, {
     userId: record.userId,
     productId: record.productId,
+    variantId: record.variantId,
     favoritedAt: record.created_at,
   })
 }

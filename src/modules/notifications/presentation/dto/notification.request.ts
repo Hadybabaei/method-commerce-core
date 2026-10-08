@@ -1,10 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { Transform, Type } from 'class-transformer'
 import { IsBoolean, IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator'
-import {
-  NOTIFICATION_CONTEXTS,
-  NotificationContext,
-} from '../../domain/enums/notification.enums'
+import { NOTIFICATION_CONTEXTS, NotificationContext } from '../../domain/enums/notification.enums'
 
 function toOptionalBoolean({ value }: { value: unknown }): unknown {
   if (value === '' || value === null || value === undefined) {

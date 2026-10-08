@@ -9,6 +9,8 @@ export function toCategoryView(category: Category): CategoryView {
     slug: category.slug.value,
     icon: category.icon,
     description: category.description,
+    seoTitle: category.seo.title,
+    seoDescription: category.seo.description,
     parentId: category.parentId,
     depth: category.depth,
     position: category.position,
@@ -54,5 +56,7 @@ export function toBrandView(brand: Brand): BrandView {
     slug: brand.slug.value,
     logo: brand.logo,
     description: brand.description,
+    seoTitle: brand.seo.title,
+    seoDescription: brand.seo.description,
   }
 }

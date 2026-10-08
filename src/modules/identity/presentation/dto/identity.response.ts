@@ -78,6 +78,12 @@ export class AdminResponse implements AdminView {
   @ApiProperty({ example: 'admin', enum: ['admin', 'operator'] })
   role: string
 
+  @ApiProperty({
+    example: ['orders', 'customers'],
+    description: 'Effective permissions; the super admin (role admin) holds all of them.',
+  })
+  permissions: string[]
+
   @ApiProperty({ example: true })
   active: boolean
 

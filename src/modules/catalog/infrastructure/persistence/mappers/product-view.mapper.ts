@@ -64,6 +64,7 @@ export function toProductSummaryView(record: SummaryRecord): ProductSummaryView 
     brand: record.brand,
     priceFrom: prices.length > 0 ? Math.min(...prices) : null,
     priceTo: prices.length > 0 ? Math.max(...prices) : null,
+    rating: null,
     createdAt: record.created_at,
   }
 }
@@ -84,10 +85,14 @@ export function toProductDetailView(record: DetailRecord): ProductDetailView {
     brand: record.brand,
     priceFrom: activePrices.length > 0 ? Math.min(...activePrices) : null,
     priceTo: activePrices.length > 0 ? Math.max(...activePrices) : null,
+    rating: null,
     createdAt: record.created_at,
     description: record.description,
+    seoTitle: record.seo_title,
+    seoDescription: record.seo_description,
     shortDescription: record.short_description,
     weightGrams: record.weightGrams,
+    taxExempt: record.tax_exempt,
     images: record.images.map((image) => ({
       url: image.url,
       thumbnail: image.thumbnail,
@@ -101,7 +106,15 @@ export function toProductDetailView(record: DetailRecord): ProductDetailView {
   }
 }
 
-function toVariantView(variant: DetailRecord['variants'][number]): ProductVariantView {
+/** Loads what `toVariantView` needs for one variant row. */
+export const variantViewInclude = {
+  optionValues: { include: { optionValue: { include: { option: true } } } },
+  inventory: { select: { on_hand: true, reserved: true } },
+} satisfies Prisma.product_variantInclude
+
+export function toVariantView(
+  variant: Prisma.product_variantGetPayload<{ include: typeof variantViewInclude }>
+): ProductVariantView {
   const price = effectivePrice(variant)
   const onSale = variant.sale_price !== null
 

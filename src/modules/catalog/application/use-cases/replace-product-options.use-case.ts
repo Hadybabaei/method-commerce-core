@@ -7,9 +7,10 @@ import { ProductDetailView } from '../dto/views'
 import { PRODUCT_READ_MODEL, ProductReadModel } from '../ports/product-read.port'
 
 @Injectable()
-export class ReplaceProductOptionsUseCase
-  implements UseCase<ReplaceProductOptionsCommand, ProductDetailView>
-{
+export class ReplaceProductOptionsUseCase implements UseCase<
+  ReplaceProductOptionsCommand,
+  ProductDetailView
+> {
   constructor(
     @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository,
     @Inject(PRODUCT_READ_MODEL) private readonly productReads: ProductReadModel

@@ -14,7 +14,15 @@ import { CommentsModule } from '@modules/comments/comments.module'
 import { FavoritesModule } from '@modules/favorites/favorites.module'
 import { OrderingModule } from '@modules/ordering/ordering.module'
 import { NotificationsModule } from '@modules/notifications/notifications.module'
-import { isOrderingJobsEnabled, assertProductionOrderingJobs } from '@modules/ordering/ordering-jobs.enabled'
+import { StoreModule } from '@modules/store/store.module'
+import { PromotionsModule } from '@modules/promotions/promotions.module'
+import { BackofficeModule } from '@modules/backoffice/backoffice.module'
+import { SearchModule } from '@modules/search/search.module'
+import { StockAlertsModule } from '@modules/stock-alerts/stock-alerts.module'
+import {
+  isOrderingJobsEnabled,
+  assertProductionOrderingJobs,
+} from '@modules/ordering/ordering-jobs.enabled'
 import { IdentityModule } from '@modules/identity/identity.module'
 import { LoggingModule } from '@shared/infrastructure/logging/logging.module'
 import { PrismaModule } from '@shared/infrastructure/persistence/prisma/prisma.module'
@@ -75,6 +83,11 @@ assertProductionOrderingJobs()
     BasketModule,
     OrderingModule,
     NotificationsModule,
+    StoreModule,
+    PromotionsModule,
+    BackofficeModule,
+    SearchModule,
+    StockAlertsModule,
     ...optionalModules,
   ],
   controllers: [HealthController],

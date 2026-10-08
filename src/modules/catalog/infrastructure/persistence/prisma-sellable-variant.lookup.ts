@@ -16,6 +16,7 @@ export class PrismaSellableVariantLookup implements SellableVariantLookup {
         product: {
           include: {
             images: { where: { thumbnail: true }, take: 1 },
+            category: { select: { path: true } },
           },
         },
         inventory: true,
@@ -38,12 +39,17 @@ export class PrismaSellableVariantLookup implements SellableVariantLookup {
       variantId: record.id,
       productId: record.productId,
       productTitle: record.product.title,
+      categoryId: record.product.categoryId,
+      categoryPath: record.product.category?.path ?? null,
+      brandId: record.product.brandId,
       productSlug: record.product.slug,
       productPublished: record.product.publish,
       sku: record.sku,
       isActive: record.is_active,
       unitPrice: record.sale_price ?? record.price,
       compareAtPrice: record.sale_price === null ? null : record.price,
+      weightGrams: record.weightGrams ?? record.product.weightGrams,
+      taxExempt: record.product.tax_exempt,
       availableQuantity,
       options: record.optionValues.map((link) => ({
         option: link.optionValue.option.name,

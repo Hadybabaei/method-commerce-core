@@ -22,14 +22,19 @@ export class PrismaFavoriteRepository implements FavoriteRepository {
 
   async save(favorite: Favorite): Promise<Favorite> {
     if (!favorite.isNew) {
-      // Favorites have nothing to update; a second save would be a bug.
-      return favorite
+      // Only the chosen variant can change.
+      const record = await this.prisma.user_favorite.update({
+        where: { userId_productId: { userId: favorite.userId, productId: favorite.productId } },
+        data: { variantId: favorite.variantId },
+      })
+      return toDomainFavorite(record)
     }
 
     const record = await this.prisma.user_favorite.create({
       data: {
         userId: favorite.userId,
         productId: favorite.productId,
+        variantId: favorite.variantId,
       },
     })
 

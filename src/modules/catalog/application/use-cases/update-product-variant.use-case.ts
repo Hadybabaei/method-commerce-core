@@ -10,9 +10,10 @@ import { INVENTORY_STOCK_WRITER, InventoryStockWriter } from '../ports/inventory
 import { PRODUCT_READ_MODEL, ProductReadModel } from '../ports/product-read.port'
 
 @Injectable()
-export class UpdateProductVariantUseCase
-  implements UseCase<UpdateProductVariantCommand, ProductDetailView>
-{
+export class UpdateProductVariantUseCase implements UseCase<
+  UpdateProductVariantCommand,
+  ProductDetailView
+> {
   constructor(
     @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository,
     @Inject(PRODUCT_READ_MODEL) private readonly productReads: ProductReadModel,

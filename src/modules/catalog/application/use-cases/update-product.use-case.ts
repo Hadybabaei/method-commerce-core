@@ -63,10 +63,14 @@ export class UpdateProductUseCase implements UseCase<UpdateProductCommand, Produ
     if (command.title !== undefined) changes.title = command.title
     if (command.subTitle !== undefined) changes.subTitle = command.subTitle
     if (command.description !== undefined) changes.description = command.description
+    if (command.seoTitle !== undefined || command.seoDescription !== undefined) {
+      changes.seo = { title: command.seoTitle, description: command.seoDescription }
+    }
     if (command.shortDescription !== undefined) {
       changes.shortDescription = command.shortDescription
     }
     if (command.weightGrams !== undefined) changes.weightGrams = command.weightGrams
+    if (command.taxExempt !== undefined) changes.taxExempt = command.taxExempt
 
     if (command.slug !== undefined) {
       const slug = Slug.create(command.slug)

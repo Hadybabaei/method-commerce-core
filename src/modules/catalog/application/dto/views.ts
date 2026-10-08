@@ -4,6 +4,10 @@ export interface CategoryView {
   slug: string
   icon: string | null
   description: string | null
+  /** Search-engine title; null = use the title. */
+  seoTitle: string | null
+  /** Search-engine description; null = use the description. */
+  seoDescription: string | null
   parentId: number | null
   depth: number
   position: number
@@ -19,6 +23,10 @@ export interface BrandView {
   slug: string
   logo: string | null
   description: string | null
+  /** Search-engine title; null = use the title. */
+  seoTitle: string | null
+  /** Search-engine description; null = use the description. */
+  seoDescription: string | null
 }
 
 export interface ProductImageView {
@@ -59,13 +67,20 @@ export interface ProductSummaryView {
   /** Null until the product has at least one active variant. */
   priceFrom: number | null
   priceTo: number | null
+  /** Approved customer ratings; null until the product has one. */
+  rating: { average: number; count: number } | null
   createdAt: Date
 }
 
 export interface ProductDetailView extends ProductSummaryView {
   description: string | null
+  /** Search-engine title; null = use the title. */
+  seoTitle: string | null
+  /** Search-engine description; null = use the description. */
+  seoDescription: string | null
   shortDescription: string | null
   weightGrams: number
+  taxExempt: boolean
   images: ProductImageView[]
   options: ProductOptionView[]
   variants: ProductVariantView[]

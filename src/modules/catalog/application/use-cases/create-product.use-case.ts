@@ -1,3 +1,4 @@
+import { SeoMeta } from '../../domain/value-objects/seo-meta.vo'
 import { Inject, Injectable } from '@nestjs/common'
 import { UseCase } from '@shared/application/use-case'
 import { Product } from '../../domain/entities/product.aggregate'
@@ -45,9 +46,11 @@ export class CreateProductUseCase implements UseCase<CreateProductCommand, Produ
       slug,
       subTitle: command.subTitle ?? null,
       description: command.description ?? null,
+      seo: SeoMeta.create({ title: command.seoTitle, description: command.seoDescription }),
       shortDescription: command.shortDescription ?? null,
       published: command.published ?? false,
       weightGrams: command.weightGrams ?? DEFAULT_WEIGHT_GRAMS,
+      taxExempt: command.taxExempt ?? false,
       categoryId: command.categoryId ?? null,
       brandId: command.brandId ?? null,
       images: toProductImages(command.images as ProductImageCommand[] | undefined),

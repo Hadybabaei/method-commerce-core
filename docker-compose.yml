@@ -29,6 +29,24 @@ services:
       timeout: 3s
       retries: 20
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.15
+    container_name: method-commerce-api-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_MASTER_KEY: ${MEILISEARCH_API_KEY:-change-me-master-key}
+      MEILI_NO_ANALYTICS: 'true'
+    ports:
+      - '${MEILISEARCH_PORT:-7700}:7700'
+    volumes:
+      - meili-data:/meili_data
+    healthcheck:
+      test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:7700/health']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     build:
       context: .
@@ -43,17 +61,59 @@ services:
       NODE_ENV: production
       DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-method-commerce}
       REDIS_URL: redis://redis:6379
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-change-me-master-key}
       OTP_EXPOSE_IN_RESPONSE: 'false'
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     volumes:
       - api-uploads:/app/uploads
       - api-logs:/app/logs
 
+  # Optional S3-compatible storage for local testing: docker compose --profile s3 up -d
+  minio:
+    image: minio/minio:latest
+    profiles: ['s3']
+    container_name: method-commerce-api-minio
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Creates the bucket and makes it publicly readable (like a CDN-backed bucket).
+  minio-init:
+    image: minio/mc:latest
+    profiles: ['s3']
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/$${BUCKET} &&
+      mc anonymous set download local/$${BUCKET}"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      BUCKET: ${S3_BUCKET:-method-commerce}
+
 volumes:
   mysql-data:
+  meili-data:
   api-uploads:
   api-logs:
+  minio-data:

@@ -29,11 +29,40 @@ export class PrismaProductReadModel implements ProductReadModel {
   async list(criteria: ProductListCriteria): Promise<PaginatedView<ProductSummaryView>> {
     // Price and stock live on variants / inventory rows, so those filters and
     // sorts need a grouped query. Everything else stays on a plain Prisma find.
-    if (PrismaProductReadModel.needsVariantMetrics(criteria)) {
-      return this.listWithVariantMetrics(criteria)
-    }
+    const page = PrismaProductReadModel.needsVariantMetrics(criteria)
+      ? await this.listWithVariantMetrics(criteria)
+      : await this.listSimple(criteria)
 
-    return this.listSimple(criteria)
+    return { ...page, items: await this.withRatings(page.items) }
+  }
+
+  /** Adds the average of approved root-comment ratings to each product. */
+  private async withRatings<T extends ProductSummaryView>(items: T[]): Promise<T[]> {
+    if (items.length === 0) return items
+    const rows = await this.prisma.comment.groupBy({
+      by: ['productId'],
+      where: {
+        productId: { in: items.map((item) => item.id) },
+        published: true,
+        parentId: null,
+        rate: { not: null },
+      },
+      _avg: { rate: true },
+      _count: { rate: true },
+    })
+    const byProduct = new Map(rows.map((row) => [row.productId, row]))
+    return items.map((item) => {
+      const row = byProduct.get(item.id)
+      return row && row._count.rate > 0
+        ? {
+            ...item,
+            rating: {
+              average: Math.round(Number(row._avg.rate ?? 0) * 10) / 10,
+              count: row._count.rate,
+            },
+          }
+        : item
+    })
   }
 
   async findDetailById(id: number): Promise<ProductDetailView | null> {
@@ -42,7 +71,7 @@ export class PrismaProductReadModel implements ProductReadModel {
       include: productDetailInclude,
     })
 
-    return record ? toProductDetailView(record) : null
+    return record ? (await this.withRatings([toProductDetailView(record)]))[0] : null
   }
 
   async findDetailBySlug(slug: string, publishedOnly: boolean): Promise<ProductDetailView | null> {
@@ -51,7 +80,7 @@ export class PrismaProductReadModel implements ProductReadModel {
       include: productDetailInclude,
     })
 
-    return record ? toProductDetailView(record) : null
+    return record ? (await this.withRatings([toProductDetailView(record)]))[0] : null
   }
 
   private async listSimple(

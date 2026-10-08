@@ -61,7 +61,7 @@ export class OrderNotPayableError extends BusinessRuleViolationError {
 
 export class OrderNotCompletableError extends BusinessRuleViolationError {
   constructor(status: string) {
-    super('Only a paid order can be marked completed', { status })
+    super('Only a paid, processing or shipped order can be marked completed', { status })
   }
 }
 
@@ -107,5 +107,101 @@ export class InventoryLevelMissingError extends BusinessRuleViolationError {
       variant: variantId,
       location: locationId,
     })
+  }
+}
+
+export class OrderNotProcessableError extends BusinessRuleViolationError {
+  constructor(status: string) {
+    super('Only a paid order can start processing', { status })
+  }
+}
+
+export class OrderNotShippableError extends BusinessRuleViolationError {
+  constructor(status: string) {
+    super('Only a paid or processing order can be shipped', { status })
+  }
+}
+
+export class InvalidTrackingCodeError extends InvalidInputError {
+  constructor() {
+    super('Tracking code must be 1 to 100 characters')
+  }
+}
+
+export class InvalidShippingMethodError extends InvalidInputError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}
+
+export class ShippingMethodNotFoundError extends NotFoundError {
+  constructor(identifier?: number) {
+    super(
+      'Shipping method not found',
+      identifier === undefined ? undefined : { shippingMethod: identifier }
+    )
+  }
+}
+
+export class ShippingMethodCodeTakenError extends ConflictError {
+  constructor(code: string) {
+    super('Another shipping method already uses this code', { code })
+  }
+}
+
+/** The store ships, but not to this address's province. */
+export class ShippingUnavailableError extends BusinessRuleViolationError {
+  constructor(provinceId: number) {
+    super('No shipping method delivers to this province', { province: provinceId })
+  }
+}
+
+/** The customer picked a method that is inactive or does not serve the address. */
+export class ShippingMethodNotOfferedError extends BusinessRuleViolationError {
+  constructor(shippingMethodId: number, provinceId: number) {
+    super('This shipping method is not available for the delivery address', {
+      shippingMethod: shippingMethodId,
+      province: provinceId,
+    })
+  }
+}
+
+export class ReturnRequestNotFoundError extends NotFoundError {
+  constructor(identifier?: number) {
+    super(
+      'Return request not found',
+      identifier === undefined ? undefined : { returnRequest: identifier }
+    )
+  }
+}
+
+/** The order cannot be returned (not delivered, or the window has closed). */
+export class ReturnNotAllowedError extends BusinessRuleViolationError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}
+
+export class InvalidReturnRequestError extends InvalidInputError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}
+
+export class ReturnAlreadyDecidedError extends BusinessRuleViolationError {
+  constructor(status: string) {
+    super('This return request was already decided', { status })
+  }
+}
+
+export class RefundNotAllowedError extends BusinessRuleViolationError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}
+
+export class InvalidRefundError extends InvalidInputError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
   }
 }

@@ -141,6 +141,38 @@ export class PrismaInventoryReservationService implements InventoryReservationSe
     }
   }
 
+  async restock(
+    lines: ReadonlyArray<{ variantId: number; quantity: number }>,
+    plan: StockAllocationPlan,
+    tx: unknown
+  ): Promise<void> {
+    const client = this.requireTx(tx)
+
+    for (const line of [...lines].sort((a, b) => a.variantId - b.variantId)) {
+      const shippedFrom = plan.allocations.find((row) => row.variantId === line.variantId)
+      const locationId = shippedFrom?.locationId ?? (await this.defaultLocationId(client))
+      if (locationId === null) {
+        continue
+      }
+
+      await this.lockLevelsForVariant(client, line.variantId)
+      await client.inventory_level.upsert({
+        where: { variantId_locationId: { variantId: line.variantId, locationId } },
+        create: { variantId: line.variantId, locationId, on_hand: line.quantity, reserved: 0 },
+        update: { on_hand: { increment: line.quantity } },
+      })
+    }
+  }
+
+  private async defaultLocationId(client: Tx): Promise<number | null> {
+    const location = await client.inventory_location.findFirst({
+      where: { is_active: true },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    })
+    return location?.id ?? null
+  }
+
   private requireTx(tx: unknown): Tx {
     if (!tx) {
       throw new Error('Inventory mutations require an open Prisma transaction')

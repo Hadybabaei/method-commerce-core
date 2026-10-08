@@ -1,3 +1,13 @@
+import { CatalogFreshnessListener } from './infrastructure/catalog-freshness.listener'
+import { APP_INTERCEPTOR } from '@nestjs/core'
+import { CatalogChangeInterceptor } from './presentation/catalog-change.interceptor'
+import { CATALOG_SEO_READ_MODEL } from './application/ports/catalog-seo-read.port'
+import {
+  GetSitemapUseCase,
+  ResolveSlugRedirectUseCase,
+} from './application/use-cases/catalog-seo.use-cases'
+import { PrismaCatalogSeoReadModel } from './infrastructure/persistence/prisma-catalog-seo.read-model'
+import { CatalogSeoController } from './presentation/controllers/catalog-seo.controller'
 import { Module } from '@nestjs/common'
 import { IdentityModule } from '@modules/identity/identity.module'
 import { AddProductVariantUseCase } from './application/use-cases/add-product-variant.use-case'
@@ -24,6 +34,7 @@ import { UpdateBrandUseCase } from './application/use-cases/update-brand.use-cas
 import { UpdateCategoryUseCase } from './application/use-cases/update-category.use-case'
 import { UpdateProductUseCase } from './application/use-cases/update-product.use-case'
 import { UpdateProductVariantUseCase } from './application/use-cases/update-product-variant.use-case'
+import { UploadCatalogImageUseCase } from './application/use-cases/upload-catalog-image.use-case'
 import { INVENTORY_STOCK_WRITER } from './application/ports/inventory-stock.port'
 import { PRODUCT_READ_MODEL } from './application/ports/product-read.port'
 import { SELLABLE_VARIANT_LOOKUP } from './application/ports/sellable-variant.port'
@@ -39,11 +50,15 @@ import { PrismaSellableVariantLookup } from './infrastructure/persistence/prisma
 import { AdminBrandsController } from './presentation/controllers/admin-brands.controller'
 import { AdminCategoriesController } from './presentation/controllers/admin-categories.controller'
 import { AdminProductsController } from './presentation/controllers/admin-products.controller'
+import { AdminUploadsController } from './presentation/controllers/admin-uploads.controller'
 import { BrandsController } from './presentation/controllers/brands.controller'
 import { CategoriesController } from './presentation/controllers/categories.controller'
 import { ProductsController } from './presentation/controllers/products.controller'
+import { CatalogImageInterceptor } from './presentation/interceptors/catalog-image.interceptor'
 
 const useCases = [
+  ResolveSlugRedirectUseCase,
+  GetSitemapUseCase,
   CreateCategoryUseCase,
   UpdateCategoryUseCase,
   DeleteCategoryUseCase,
@@ -64,6 +79,7 @@ const useCases = [
   ListProductsUseCase,
   GetProductBySlugUseCase,
   GetProductByIdUseCase,
+  UploadCatalogImageUseCase,
 ]
 
 /**
@@ -73,20 +89,26 @@ const useCases = [
 @Module({
   imports: [IdentityModule],
   controllers: [
+    CatalogSeoController,
     CategoriesController,
     BrandsController,
     ProductsController,
     AdminCategoriesController,
     AdminBrandsController,
     AdminProductsController,
+    AdminUploadsController,
   ],
   providers: [
     { provide: CATEGORY_REPOSITORY, useClass: PrismaCategoryRepository },
+    CatalogFreshnessListener,
+    { provide: APP_INTERCEPTOR, useClass: CatalogChangeInterceptor },
     { provide: BRAND_REPOSITORY, useClass: PrismaBrandRepository },
     { provide: PRODUCT_REPOSITORY, useClass: PrismaProductRepository },
     { provide: PRODUCT_READ_MODEL, useClass: PrismaProductReadModel },
+    { provide: CATALOG_SEO_READ_MODEL, useClass: PrismaCatalogSeoReadModel },
     { provide: SELLABLE_VARIANT_LOOKUP, useClass: PrismaSellableVariantLookup },
     { provide: INVENTORY_STOCK_WRITER, useClass: PrismaInventoryStockWriter },
+    CatalogImageInterceptor,
     ...useCases,
   ],
   // Other contexts (favorites, basket, later cart) need to look a product or

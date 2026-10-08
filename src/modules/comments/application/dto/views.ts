@@ -3,6 +3,8 @@ export interface CommentAuthorView {
   id: number
   displayName: string
   avatarUrl: string | null
+  /** The customer bought this product (a paid, uncancelled order). Always false for admins. */
+  verifiedBuyer: boolean
 }
 
 export interface CommentImageView {

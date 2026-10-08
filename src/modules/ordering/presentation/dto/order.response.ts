@@ -6,7 +6,14 @@ import {
   PAYMENT_METHODS,
   PaymentMethod,
 } from '../../domain/enums/order.enums'
-import { OrderItemView, OrderView } from '../../application/dto/views'
+import {
+  OrderItemView,
+  OrderShippingView,
+  OrderStatusEventView,
+  OrderView,
+} from '../../application/dto/views'
+import { ShippingOptionResponse } from './shipping-method.response'
+import { RefundResponse, ReturnRequestResponse } from './returns.dto'
 
 export class OrderProductSnapshotResponse {
   @ApiProperty({ example: 1 })
@@ -89,6 +96,12 @@ export class OrderItemResponse implements OrderItemView {
   @ApiProperty({ example: 4_800_000 })
   lineTotal: number
 
+  @ApiProperty({ example: 0, description: 'Share of the order discount, Rial.' })
+  discountAmount: number
+
+  @ApiProperty({ example: 480_000, description: 'VAT on this line in Rial; 0 for exempt goods.' })
+  taxAmount: number
+
   @ApiProperty({ type: OrderProductSnapshotResponse })
   product: OrderProductSnapshotResponse
 }
@@ -108,6 +121,66 @@ export class OrderPaymentResponse {
 
   @ApiProperty({ nullable: true })
   gatewayRef: string | null
+}
+
+export class OrderPromotionResponse {
+  @ApiProperty() id: number
+  @ApiProperty({ example: 'تخفیف پاییزه' }) name: string
+  @ApiProperty({ nullable: true, example: 'AUTUMN10' }) code: string | null
+  @ApiProperty({ example: 'PERCENT' }) kind: string
+  @ApiProperty({ example: 10 }) value: number
+}
+
+export class OrderShippingMethodResponse {
+  @ApiProperty({ example: 1, description: 'May no longer exist; the order keeps this copy.' })
+  id: number
+
+  @ApiProperty({ example: 'پست پیشتاز' })
+  name: string
+
+  @ApiProperty({ example: 'post' })
+  code: string
+
+  @ApiProperty({ nullable: true, example: 2 })
+  minDays: number | null
+
+  @ApiProperty({ nullable: true, example: 5 })
+  maxDays: number | null
+}
+
+export class OrderShippingResponse implements OrderShippingView {
+  @ApiProperty({
+    type: OrderShippingMethodResponse,
+    nullable: true,
+    description: 'Null when the store had no shipping methods at checkout.',
+  })
+  method: OrderShippingMethodResponse | null
+
+  @ApiProperty({ example: 650_000, description: 'Rial.' })
+  fee: number
+
+  @ApiProperty({ example: 1500 })
+  weightGrams: number
+
+  @ApiProperty({ nullable: true, example: '123456789012345678901234' })
+  trackingCode: string | null
+
+  @ApiProperty({ nullable: true, example: 'https://tracking.post.ir/?id=123456789012345678901234' })
+  trackingUrl: string | null
+}
+
+export class OrderStatusEventResponse implements OrderStatusEventView {
+  @ApiProperty({ enum: ORDER_STATUSES, nullable: true, description: 'Null for the first event.' })
+  from: OrderStatus | null
+
+  @ApiProperty({ enum: ORDER_STATUSES, example: OrderStatus.Shipped })
+  to: OrderStatus
+
+  @ApiProperty({ nullable: true, example: 'Tracking code 123456789012345678901234' })
+  note: string | null
+
+  @ApiProperty()
+  at: Date
 }
 
 export class OrderResponse implements OrderView {
@@ -132,6 +205,33 @@ export class OrderResponse implements OrderView {
   @ApiProperty({ example: 4_800_000, description: 'Sum of line totals in Rial.' })
   subtotal: number
 
+  @ApiProperty({ example: 650_000, description: 'Rial.' })
+  shippingFee: number
+
+  @ApiProperty({
+    example: 5_450_000,
+    description: 'subtotal + shippingFee in Rial; what the customer pays.',
+  })
+  total: number
+
+  @ApiProperty({ example: 0, description: 'Goods and shipping discount, Rial.' })
+  discountTotal: number
+
+  @ApiProperty({ type: OrderPromotionResponse, nullable: true })
+  promotion: OrderPromotionResponse | null
+
+  @ApiProperty({ example: 1000, description: 'VAT rate at checkout in basis points (1000 = 10%).' })
+  taxRateBp: number
+
+  @ApiProperty({ example: 480_000, description: 'VAT in Rial.' })
+  taxTotal: number
+
+  @ApiProperty({ example: 0, description: 'Refunds paid back so far, in Rial.' })
+  refundedTotal: number
+
+  @ApiProperty({ type: OrderShippingResponse })
+  shipping: OrderShippingResponse
+
   @ApiProperty({ nullable: true })
   note: string | null
 
@@ -147,11 +247,32 @@ export class OrderResponse implements OrderView {
   @ApiProperty({ example: true })
   canCancel: boolean
 
+  @ApiProperty({ type: [OrderStatusEventResponse], description: 'Oldest first.' })
+  statusHistory: OrderStatusEventResponse[]
+
+  @ApiProperty({ type: [ReturnRequestResponse], description: 'Oldest first.' })
+  returns: ReturnRequestResponse[]
+
+  @ApiProperty({ type: [RefundResponse], description: 'Oldest first.' })
+  refunds: RefundResponse[]
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Last moment a return may be requested; null unless delivered.',
+  })
+  returnableUntil: Date | null
+
   @ApiProperty({ nullable: true })
   cancelledAt: Date | null
 
   @ApiProperty({ nullable: true })
   paidAt: Date | null
+
+  @ApiProperty({ nullable: true })
+  processingAt: Date | null
+
+  @ApiProperty({ nullable: true })
+  shippedAt: Date | null
 
   @ApiProperty({ nullable: true })
   completedAt: Date | null
@@ -178,6 +299,12 @@ export class CheckoutPreviewItemResponse {
   @ApiProperty({ example: 4_800_000 })
   lineTotal: number
 
+  @ApiProperty({ example: 0, description: 'Share of the order discount, Rial.' })
+  discountAmount: number
+
+  @ApiProperty({ example: 480_000, description: 'VAT on this line in Rial; 0 for exempt goods.' })
+  taxAmount: number
+
   @ApiProperty({ type: OrderProductSnapshotResponse })
   product: OrderProductSnapshotResponse
 }
@@ -195,11 +322,43 @@ export class CheckoutPreviewResponse {
   @ApiProperty({ example: 4_800_000, description: 'Sum of line totals in Rial.' })
   subtotal: number
 
+  @ApiProperty({ example: 1500, description: 'Parcel weight used for the shipping quote.' })
+  weightGrams: number
+
   @ApiProperty({
-    example: 0,
-    description: 'Reserved for a future shipping quote. Currently always 0.',
+    type: [ShippingOptionResponse],
+    description:
+      'Methods that deliver to the address, cheapest first. Empty when the store has none.',
+  })
+  shippingMethods: ShippingOptionResponse[]
+
+  @ApiProperty({
+    nullable: true,
+    example: 1,
+    description: 'The method the order will use: the requested one, else the cheapest.',
+  })
+  shippingMethodId: number | null
+
+  @ApiProperty({
+    example: 650_000,
+    description: 'Fee of the selected method in Rial; 0 when none.',
   })
   shippingFee: number
+
+  @ApiProperty({ example: 0, description: 'Goods and shipping discount, Rial.' })
+  discountTotal: number
+
+  @ApiProperty({ type: OrderPromotionResponse, nullable: true })
+  promotion: OrderPromotionResponse | null
+
+  @ApiProperty({ description: 'The coupon was valid but an automatic campaign saved more.' })
+  couponOutranked: boolean
+
+  @ApiProperty({ example: 1000, description: 'Basis points; 1000 = 10%.' })
+  taxRateBp: number
+
+  @ApiProperty({ example: 480_000, description: 'VAT in Rial; exempt products add nothing.' })
+  taxTotal: number
 
   @ApiProperty({ example: 4_800_000, description: 'subtotal + shippingFee, in Rial.' })
   total: number

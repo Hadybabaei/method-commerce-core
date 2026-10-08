@@ -14,6 +14,9 @@ export class CommentAuthorResponse implements CommentAuthorView {
 
   @ApiProperty({ nullable: true })
   avatarUrl: string | null
+
+  @ApiProperty({ description: 'Bought this product in a paid, uncancelled order.' })
+  verifiedBuyer: boolean
 }
 
 export class CommentImageResponse implements CommentImageView {

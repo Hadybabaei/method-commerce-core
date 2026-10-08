@@ -1,6 +1,8 @@
 export enum OrderStatus {
   Pending = 'PENDING',
   Paid = 'PAID',
+  Processing = 'PROCESSING',
+  Shipped = 'SHIPPED',
   Cancelled = 'CANCELLED',
   Completed = 'COMPLETED',
 }
@@ -16,6 +18,15 @@ export enum PaymentMethod {
   CashOnDelivery = 'CASH_ON_DELIVERY',
   Online = 'ONLINE',
 }
+
+export enum ReturnRequestStatus {
+  Requested = 'REQUESTED',
+  Approved = 'APPROVED',
+  Rejected = 'REJECTED',
+  Refunded = 'REFUNDED',
+}
+
+export const RETURN_REQUEST_STATUSES = Object.values(ReturnRequestStatus)
 
 export enum PaymentStatus {
   Initiated = 'INITIATED',

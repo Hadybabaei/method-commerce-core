@@ -1,12 +1,26 @@
+import {
+  DecideReturnUseCase,
+  ListReturnRequestsUseCase,
+  RecordRefundUseCase,
+  RequestReturnUseCase,
+} from './application/use-cases/returns.use-cases'
+import { RETURN_REQUEST_REPOSITORY } from './domain/repositories/return-request.repository'
+import { REFUND_REPOSITORY } from './domain/repositories/refund.repository'
+import { PrismaReturnRequestRepository } from './infrastructure/persistence/prisma-return-request.repository'
+import { PrismaRefundRepository } from './infrastructure/persistence/prisma-refund.repository'
+import { AdminReturnsController } from './presentation/controllers/admin-returns.controller'
 import { Module } from '@nestjs/common'
 import { AddressingModule } from '@modules/addressing/addressing.module'
 import { BasketModule } from '@modules/basket/basket.module'
 import { CatalogModule } from '@modules/catalog/catalog.module'
 import { IdentityModule } from '@modules/identity/identity.module'
 import { NotificationsModule } from '@modules/notifications/notifications.module'
+import { StoreModule } from '@modules/store/store.module'
+import { PromotionsModule } from '@modules/promotions/promotions.module'
 import { ORDER_PAYMENT_TIMEOUT_SCHEDULER } from './application/ports/order-payment-timeout.port'
 import { ORDER_READ_MODEL } from './application/ports/order-read.port'
 import { PAYMENT_GATEWAY } from './application/ports/payment-gateway.port'
+import { GetInvoiceUseCase } from './application/use-cases/get-invoice.use-case'
 import { CancelOrderUseCase } from './application/use-cases/cancel-order.use-case'
 import { CompleteOrderUseCase } from './application/use-cases/complete-order.use-case'
 import { ConfirmCodPaymentUseCase } from './application/use-cases/confirm-cod-payment.use-case'
@@ -19,6 +33,20 @@ import { HandlePaymentCallbackUseCase } from './application/use-cases/handle-pay
 import { InitiatePaymentUseCase } from './application/use-cases/initiate-payment.use-case'
 import { InquireOpenPaymentsUseCase } from './application/use-cases/inquire-open-payments.use-case'
 import { PreviewCheckoutUseCase } from './application/use-cases/preview-checkout.use-case'
+import { ProcessOrderUseCase } from './application/use-cases/process-order.use-case'
+import { ShipOrderUseCase } from './application/use-cases/ship-order.use-case'
+import {
+  CreateShippingMethodUseCase,
+  DeleteShippingMethodUseCase,
+  ListShippingMethodsUseCase,
+  UpdateShippingMethodUseCase,
+} from './application/use-cases/shipping-methods.use-cases'
+import { ORDER_SMS_DISPATCHER } from './application/ports/order-sms.port'
+import { SHIPPING_METHOD_REPOSITORY } from './domain/repositories/shipping-method.repository'
+import { PrismaShippingMethodRepository } from './infrastructure/persistence/prisma-shipping-method.repository'
+import { DelegatingOrderSmsDispatcher } from './infrastructure/sms/delegating-order-sms.dispatcher'
+import { DirectOrderSmsDispatcher } from './infrastructure/sms/direct-order-sms.dispatcher'
+import { AdminShippingMethodsController } from './presentation/controllers/admin-shipping-methods.controller'
 import { CheckoutAssembler } from './application/services/checkout-assembler.service'
 import { INVENTORY_RESERVATION, ORDER_REPOSITORY } from './domain/repositories/order.repository'
 import { PAYMENT_REPOSITORY } from './domain/repositories/payment.repository'
@@ -39,8 +67,19 @@ const useCases = [
   CancelOrderUseCase,
   ConfirmCodPaymentUseCase,
   CompleteOrderUseCase,
+  ProcessOrderUseCase,
+  ShipOrderUseCase,
+  ListShippingMethodsUseCase,
+  CreateShippingMethodUseCase,
+  UpdateShippingMethodUseCase,
+  DeleteShippingMethodUseCase,
   GetOrderUseCase,
   ListOrdersUseCase,
+  GetInvoiceUseCase,
+  RequestReturnUseCase,
+  ListReturnRequestsUseCase,
+  DecideReturnUseCase,
+  RecordRefundUseCase,
   InitiatePaymentUseCase,
   HandlePaymentCallbackUseCase,
   InquireOpenPaymentsUseCase,
@@ -52,14 +91,33 @@ const useCases = [
  * token stays here and delegates to BullMQ when that module is present.
  */
 @Module({
-  imports: [IdentityModule, BasketModule, CatalogModule, AddressingModule, NotificationsModule],
-  controllers: [OrdersController, AdminOrdersController, PaymentsController],
+  imports: [
+    IdentityModule,
+    BasketModule,
+    CatalogModule,
+    AddressingModule,
+    NotificationsModule,
+    StoreModule,
+    PromotionsModule,
+  ],
+  controllers: [
+    OrdersController,
+    AdminOrdersController,
+    AdminShippingMethodsController,
+    AdminReturnsController,
+    PaymentsController,
+  ],
   providers: [
     { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository },
     { provide: ORDER_READ_MODEL, useClass: PrismaOrderReadModel },
     { provide: PAYMENT_REPOSITORY, useClass: PrismaPaymentRepository },
     { provide: INVENTORY_RESERVATION, useClass: PrismaInventoryReservationService },
     { provide: PAYMENT_GATEWAY, useClass: ZibalPaymentGateway },
+    { provide: SHIPPING_METHOD_REPOSITORY, useClass: PrismaShippingMethodRepository },
+    { provide: RETURN_REQUEST_REPOSITORY, useClass: PrismaReturnRequestRepository },
+    { provide: REFUND_REPOSITORY, useClass: PrismaRefundRepository },
+    DirectOrderSmsDispatcher,
+    { provide: ORDER_SMS_DISPATCHER, useClass: DelegatingOrderSmsDispatcher },
     { provide: ORDER_PAYMENT_TIMEOUT_SCHEDULER, useClass: DelegatingOrderPaymentTimeoutScheduler },
     OrderNotificationService,
     CheckoutAssembler,

@@ -7,10 +7,7 @@ import {
   NOTIFICATION_REPOSITORY,
   NotificationRepository,
 } from '../../domain/repositories/notification.repository'
-import {
-  ADMIN_RECIPIENT_DIRECTORY,
-  AdminRecipientDirectory,
-} from '../ports/admin-recipient.port'
+import { ADMIN_RECIPIENT_DIRECTORY, AdminRecipientDirectory } from '../ports/admin-recipient.port'
 import {
   NotificationRecipient,
   Notifications,

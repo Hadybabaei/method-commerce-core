@@ -10,6 +10,7 @@ import {
 } from '@modules/basket/domain/repositories/basket.repository'
 import { OrderingJobsConfig } from '@config/ordering-jobs.config'
 import { UseCase } from '@shared/application/use-case'
+import { Money } from '@shared/domain/value-objects/money'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
 import { isUniqueConstraintError } from '@shared/infrastructure/persistence/prisma/prisma-errors'
 import { Order } from '../../domain/entities/order.aggregate'
@@ -124,12 +125,30 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
             throw new EmptyBasketError()
           }
 
-          const orderItems = await this.assembler.buildItems(
+          const lines = await this.assembler.buildItems(
             basket.getItems().map((item) => ({
               variantId: item.variantId,
               quantity: item.quantityValue,
             }))
           )
+          const { weightGrams, taxRateBp } = lines
+
+          const subtotal = lines.items.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
+          const shipping = await this.assembler.quoteShipping({
+            provinceId: addressView.province.id,
+            subtotal,
+            weightGrams,
+            shippingMethodId: command.shippingMethodId,
+          })
+          const now = new Date()
+          const { applied } = await this.assembler.choosePromotion({
+            userId: command.userId,
+            couponCode: command.couponCode,
+            lines,
+            shippingFee: shipping.selected?.fee.amount ?? 0,
+            now,
+          })
+          const { items: orderItems, discount } = CheckoutAssembler.applyDiscount(lines, applied)
 
           const sequence = await this.orders.nextDailySequence(dayKey, tx)
           const number = `ORD-${dayKey}-${String(sequence).padStart(5, '0')}`
@@ -140,6 +159,9 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
             paymentMethod: command.paymentMethod ?? PaymentMethod.CashOnDelivery,
             items: orderItems,
             addressSnapshot: addressView,
+            shipping: CheckoutAssembler.toOrderShipping(shipping.selected, weightGrams),
+            taxRateBp,
+            discount,
             note: command.note,
           })
 
@@ -153,6 +175,13 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
           draft.markReserved(plan)
 
           const saved = await this.orders.create(draft, tx)
+          if (applied) {
+            await this.assembler.redeemPromotion(
+              applied,
+              { orderId: saved.id, userId: command.userId, now },
+              tx
+            )
+          }
 
           basket.clear()
           await this.baskets.save(basket, tx)

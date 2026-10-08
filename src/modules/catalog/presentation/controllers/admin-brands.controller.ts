@@ -1,3 +1,4 @@
+import { RequirePermission } from '@shared/presentation/decorators/require-permission.decorator'
 import {
   Body,
   Controller,
@@ -32,6 +33,7 @@ import { BrandResponse } from '../dto/catalog.response'
 @ApiTags('Admin catalog')
 @ApiBearerAuth('admin')
 @UseGuards(AdminAuthGuard)
+@RequirePermission('catalog')
 @Controller('admin/brands')
 export class AdminBrandsController {
   constructor(
@@ -62,6 +64,8 @@ export class AdminBrandsController {
       slug: body.slug,
       logo: body.logo,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
     })
   }
 
@@ -85,6 +89,8 @@ export class AdminBrandsController {
       slug: body.slug,
       logo: body.logo,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
     })
   }
 

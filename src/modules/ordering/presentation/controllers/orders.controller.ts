@@ -1,3 +1,7 @@
+import { RequestReturnUseCase } from '../../application/use-cases/returns.use-cases'
+import { RequestReturnRequest } from '../dto/returns.dto'
+import { GetInvoiceUseCase } from '../../application/use-cases/get-invoice.use-case'
+import { InvoiceResponse } from '../dto/invoice.response'
 import {
   Body,
   Controller,
@@ -41,6 +45,8 @@ import { PaymentResponse } from '../dto/payment.response'
 @Controller('orders')
 export class OrdersController {
   constructor(
+    private readonly requestReturnUseCase: RequestReturnUseCase,
+    private readonly getInvoiceUseCase: GetInvoiceUseCase,
     private readonly createOrderUseCase: CreateOrderUseCase,
     private readonly previewCheckoutUseCase: PreviewCheckoutUseCase,
     private readonly cancelOrderUseCase: CancelOrderUseCase,
@@ -67,6 +73,8 @@ export class OrdersController {
       userId,
       addressId: body.address_id,
       paymentMethod: body.payment_method,
+      shippingMethodId: body.shipping_method_id,
+      couponCode: body.coupon_code,
       note: body.note,
     })
   }
@@ -90,6 +98,8 @@ export class OrdersController {
       userId,
       addressId: body.address_id,
       paymentMethod: body.payment_method,
+      shippingMethodId: body.shipping_method_id,
+      couponCode: body.coupon_code,
       note: body.note,
     })
   }
@@ -125,6 +135,55 @@ export class OrdersController {
   )
   get(@CurrentActor('id') userId: number, @Param('id', ParseIntPipe) orderId: number) {
     return this.getOrderUseCase.execute({ orderId, userId })
+  }
+
+  @Get(':id/invoice')
+  @ApiOperation({
+    summary: 'Sales invoice for a paid order',
+    description: 'Seller and buyer details, lines with VAT and totals in Rial. 422 before payment.',
+  })
+  @ApiParam({ name: 'id', example: 9 })
+  @ApiOkResponse({ type: InvoiceResponse })
+  @ApiErrorResponses(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.UNPROCESSABLE_ENTITY
+  )
+  invoice(@CurrentActor('id') userId: number, @Param('id', ParseIntPipe) orderId: number) {
+    return this.getInvoiceUseCase.execute({ orderId, userId })
+  }
+
+  @Post(':id/returns')
+  @ApiOperation({
+    summary: 'Ask to return items from a delivered order',
+    description:
+      'Within the store return window (returnableUntil on the order). Quantities cannot exceed what was bought minus earlier, non-rejected requests.',
+  })
+  @ApiParam({ name: 'id', example: 9 })
+  @ApiCreatedResponse({ type: OrderResponse, description: 'The order with the new request.' })
+  @ApiErrorResponses(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.UNPROCESSABLE_ENTITY
+  )
+  requestReturn(
+    @CurrentActor('id') userId: number,
+    @Param('id', ParseIntPipe) orderId: number,
+    @Body() body: RequestReturnRequest
+  ) {
+    return this.requestReturnUseCase.execute({
+      orderId,
+      userId,
+      reason: body.reason,
+      items: body.items.map((item) => ({
+        orderItemId: item.order_item_id,
+        quantity: item.quantity,
+      })),
+    })
   }
 
   @Post(':id/cancel')

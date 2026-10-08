@@ -30,8 +30,9 @@ export class CompleteOrderUseCase implements UseCase<{ orderId: number }, OrderV
         return { order: locked, justCompleted: false }
       }
 
+      const before = locked.status
       locked.complete(this.clock.now())
-      const saved = await this.orders.saveIfStatus(locked, OrderStatus.Paid, tx)
+      const saved = await this.orders.saveIfStatus(locked, before, tx)
       return { order: saved, justCompleted: true }
     })
 

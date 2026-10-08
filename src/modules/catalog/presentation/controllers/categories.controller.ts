@@ -1,3 +1,4 @@
+import { CachedRead } from '@shared/presentation/interceptors/cached-read.interceptor'
 import { Controller, Get, HttpStatus, Param } from '@nestjs/common'
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
 import { ApiErrorResponses } from '@shared/presentation/swagger'
@@ -14,6 +15,7 @@ export class CategoriesController {
   ) {}
 
   @Get()
+  @CachedRead('catalog', 300)
   @ApiOperation({
     summary: 'The whole category tree, nested',
     description: 'One query regardless of depth; categories nest up to five levels.',
@@ -24,6 +26,7 @@ export class CategoriesController {
   }
 
   @Get(':slug')
+  @CachedRead('catalog', 300)
   @ApiOperation({ summary: 'Get one category by slug' })
   @ApiParam({ name: 'slug', example: 'ابزار-برقی', description: 'Percent-encode Persian slugs.' })
   @ApiOkResponse({ type: CategoryResponse, description: 'The category, without its children.' })

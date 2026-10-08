@@ -1,3 +1,4 @@
+import { SlugRedirectType, currentSlug, recordSlugChange } from './slug-redirects'
 import { Inject, Injectable } from '@nestjs/common'
 import { EVENT_PUBLISHER, EventPublisher } from '@shared/application/ports/event-publisher.port'
 import {
@@ -74,12 +75,17 @@ export class PrismaCategoryRepository implements CategoryRepository {
 
   async save(category: Category, pathRewrite?: PathRewrite | null): Promise<Category> {
     const record = await this.prisma.$transaction(async (tx) => {
+      const previousSlug = category.isNew
+        ? null
+        : await currentSlug(tx, SlugRedirectType.CATEGORY, category.id)
       const saved = category.isNew
         ? await tx.category.create({ data: toCategoryWriteData(category) })
         : await tx.category.update({
             where: { id: category.id },
             data: toCategoryWriteData(category),
           })
+
+      await recordSlugChange(tx, SlugRedirectType.CATEGORY, saved.id, previousSlug, saved.slug)
 
       if (pathRewrite) {
         await this.rewriteDescendantPaths(tx, pathRewrite)

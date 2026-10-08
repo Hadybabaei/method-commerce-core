@@ -1,3 +1,4 @@
+import { PROMOTION_ENGINE, PromotionEngine } from '@modules/promotions/application/promotion.ports'
 import { Inject, Injectable } from '@nestjs/common'
 import { UseCase } from '@shared/application/use-case'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
@@ -9,10 +10,7 @@ import {
   ORDER_REPOSITORY,
   OrderRepository,
 } from '../../domain/repositories/order.repository'
-import {
-  PAYMENT_REPOSITORY,
-  PaymentRepository,
-} from '../../domain/repositories/payment.repository'
+import { PAYMENT_REPOSITORY, PaymentRepository } from '../../domain/repositories/payment.repository'
 import { CancelOrderCommand, OrderView } from '../dto/views'
 import {
   ORDER_PAYMENT_TIMEOUT_SCHEDULER,
@@ -31,7 +29,8 @@ export class CancelOrderUseCase implements UseCase<CancelOrderCommand, OrderView
     @Inject(ORDER_PAYMENT_TIMEOUT_SCHEDULER)
     private readonly paymentTimeouts: OrderPaymentTimeoutScheduler,
     private readonly orderNotifications: OrderNotificationService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    @Inject(PROMOTION_ENGINE) private readonly promotions: PromotionEngine
   ) {}
 
   async execute(command: CancelOrderCommand): Promise<OrderView> {
@@ -56,6 +55,8 @@ export class CancelOrderUseCase implements UseCase<CancelOrderCommand, OrderView
       if (plan.allocations.length > 0) {
         await this.inventory.release(plan, tx)
       }
+      // A cancelled order no longer counts against the promotion's limits.
+      await this.promotions.release(order.id, tx)
       return this.orders.saveIfStatus(order, OrderStatus.Pending, tx)
     })
 
