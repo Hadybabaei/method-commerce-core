@@ -73,17 +73,38 @@ export class PrismaCommentReadModel implements CommentReadModel {
       }),
     ])
 
+    const authors = records.flatMap((record) => [record, ...record.replies])
+    const verified = await this.buyersOf(
+      input.productId,
+      authors.map((record) => record.userId).filter((id): id is number => id !== null)
+    )
+
     return {
       items: records.map((record) =>
         toCommentView(
           record,
-          record.replies.map((reply) => toCommentView(reply))
+          record.replies.map((reply) => toCommentView(reply, [], verified)),
+          verified
         )
       ),
       total,
       limit: input.limit,
       offset: input.offset,
     }
+  }
+
+  /** Which of these customers bought the product in a paid, uncancelled order. */
+  private async buyersOf(productId: number, userIds: number[]): Promise<Set<number>> {
+    if (userIds.length === 0) return new Set()
+    const rows = await this.prisma.$queryRaw<{ userId: number }[]>`
+      SELECT DISTINCT o.userId AS userId
+      FROM \`order\` o
+      JOIN order_item oi ON oi.orderId = o.id
+      WHERE o.userId IN (${Prisma.join([...new Set(userIds)])})
+        AND o.paidAt IS NOT NULL AND o.status <> 'CANCELLED'
+        AND CAST(JSON_EXTRACT(oi.productSnapshot, '$.productId') AS UNSIGNED) = ${productId}
+    `
+    return new Set(rows.map((row) => Number(row.userId)))
   }
 
   async listForUser(input: {
@@ -157,7 +178,11 @@ export class PrismaCommentReadModel implements CommentReadModel {
   }
 }
 
-function toCommentView(record: CommentRecord, replies: CommentView[] = []): CommentView {
+function toCommentView(
+  record: CommentRecord,
+  replies: CommentView[] = [],
+  verifiedBuyers: ReadonlySet<number> = new Set()
+): CommentView {
   return {
     id: record.id,
     productId: record.productId,
@@ -166,14 +191,17 @@ function toCommentView(record: CommentRecord, replies: CommentView[] = []): Comm
     rate: record.rate,
     published: record.published,
     parentId: record.parentId,
-    author: toAuthorView(record),
+    author: toAuthorView(record, verifiedBuyers),
     images: record.images.map((image) => ({ url: image.url, position: image.position })),
     createdAt: record.created_at,
     replies,
   }
 }
 
-function toAuthorView(record: CommentRecord): CommentAuthorView {
+function toAuthorView(
+  record: CommentRecord,
+  verifiedBuyers: ReadonlySet<number>
+): CommentAuthorView {
   if (record.admin) {
     const name = [record.admin.first_name, record.admin.last_name].filter(Boolean).join(' ')
     return {
@@ -181,6 +209,7 @@ function toAuthorView(record: CommentRecord): CommentAuthorView {
       id: record.admin.id,
       displayName: name || 'method-commerce',
       avatarUrl: record.admin.avatarUrl,
+      verifiedBuyer: false,
     }
   }
 
@@ -191,6 +220,7 @@ function toAuthorView(record: CommentRecord): CommentAuthorView {
     id: record.userId!,
     displayName: name || maskPhone(record.user?.phone_number ?? ''),
     avatarUrl: record.user?.avatar ?? null,
+    verifiedBuyer: record.userId !== null && verifiedBuyers.has(record.userId),
   }
 }
 

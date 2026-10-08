@@ -3,7 +3,10 @@ import {
   PRODUCT_REPOSITORY,
   ProductRepository,
 } from '@modules/catalog/domain/repositories/product.repository'
-import { ProductNotFoundError } from '@modules/catalog/domain/errors/catalog.errors'
+import {
+  ProductNotFoundError,
+  VariantNotFoundError,
+} from '@modules/catalog/domain/errors/catalog.errors'
 import { UseCase } from '@shared/application/use-case'
 import { Favorite } from '../../domain/entities/favorite.aggregate'
 import {
@@ -33,13 +36,21 @@ export class AddFavoriteUseCase implements UseCase<AddFavoriteCommand, FavoriteV
       throw new ProductNotFoundError(command.productId)
     }
 
+    if (command.variantId != null && !product.findVariantById(command.variantId)) {
+      throw new VariantNotFoundError(command.variantId)
+    }
+
     const existing = await this.favorites.findByUserAndProduct(command.userId, command.productId)
     if (existing) {
       throw new FavoriteAlreadyExistsError(command.productId)
     }
 
     const saved = await this.favorites.save(
-      Favorite.create({ userId: command.userId, productId: command.productId })
+      Favorite.create({
+        userId: command.userId,
+        productId: command.productId,
+        variantId: command.variantId ?? null,
+      })
     )
 
     const view = await this.favoriteReads.findByUserAndProduct(command.userId, saved.productId)

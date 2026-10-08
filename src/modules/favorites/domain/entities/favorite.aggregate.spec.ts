@@ -17,6 +17,7 @@ describe('Favorite', () => {
     const favorite = Favorite.fromPersistence(7, {
       userId: 4,
       productId: 12,
+      variantId: null,
       favoritedAt: new Date('2026-09-11T12:00:00.000Z'),
     })
 
@@ -29,5 +30,17 @@ describe('Favorite', () => {
 
   it('rejects a non-positive product id', () => {
     expect(() => Favorite.create({ userId: 4, productId: 0 })).toThrow(InvalidInputError)
+  })
+})
+
+describe('Favorite variant', () => {
+  it('keeps the chosen variant and can forget it', () => {
+    const favorite = Favorite.create({ userId: 4, productId: 12, variantId: 30 })
+    expect(favorite.variantId).toBe(30)
+    favorite.chooseVariant(31)
+    expect(favorite.variantId).toBe(31)
+    favorite.chooseVariant(null)
+    expect(favorite.variantId).toBeNull()
+    expect(Favorite.create({ userId: 4, productId: 12 }).variantId).toBeNull()
   })
 })

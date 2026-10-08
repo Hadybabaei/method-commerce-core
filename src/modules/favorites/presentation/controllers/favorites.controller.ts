@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common'
@@ -23,9 +24,10 @@ import { JwtAuthGuard } from '@modules/identity/presentation/guards/jwt-auth.gua
 import { CurrentActor } from '@shared/presentation/decorators/current-actor.decorator'
 import { ApiErrorResponses } from '@shared/presentation/swagger'
 import { AddFavoriteUseCase } from '../../application/use-cases/add-favorite.use-case'
+import { ChooseFavoriteVariantUseCase } from '../../application/use-cases/choose-favorite-variant.use-case'
 import { ListFavoritesUseCase } from '../../application/use-cases/list-favorites.use-case'
 import { RemoveFavoriteUseCase } from '../../application/use-cases/remove-favorite.use-case'
-import { AddFavoriteRequest } from '../dto/favorite.request'
+import { AddFavoriteRequest, ChooseFavoriteVariantRequest } from '../dto/favorite.request'
 import { FavoriteResponse } from '../dto/favorite.response'
 
 /**
@@ -40,7 +42,8 @@ export class FavoritesController {
   constructor(
     private readonly addFavoriteUseCase: AddFavoriteUseCase,
     private readonly removeFavoriteUseCase: RemoveFavoriteUseCase,
-    private readonly listFavoritesUseCase: ListFavoritesUseCase
+    private readonly listFavoritesUseCase: ListFavoritesUseCase,
+    private readonly chooseFavoriteVariantUseCase: ChooseFavoriteVariantUseCase
   ) {}
 
   @Get()
@@ -70,6 +73,27 @@ export class FavoritesController {
     return this.addFavoriteUseCase.execute({
       userId,
       productId: body.product_id,
+      variantId: body.variant_id ?? null,
+    })
+  }
+
+  @Patch(':productId')
+  @ApiOperation({
+    summary: 'Change the variant a saved product is kept in',
+    description: 'variant_id null keeps the product in general.',
+  })
+  @ApiParam({ name: 'productId', example: 1 })
+  @ApiOkResponse({ type: FavoriteResponse })
+  @ApiErrorResponses(HttpStatus.BAD_REQUEST, HttpStatus.UNAUTHORIZED, HttpStatus.NOT_FOUND)
+  chooseVariant(
+    @CurrentActor('id') userId: number,
+    @Param('productId', ParseIntPipe) productId: number,
+    @Body() body: ChooseFavoriteVariantRequest
+  ) {
+    return this.chooseFavoriteVariantUseCase.execute({
+      userId,
+      productId,
+      variantId: body.variant_id,
     })
   }
 

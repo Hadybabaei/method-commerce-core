@@ -43,6 +43,7 @@ model user {
   basket        basket?
   orders        order[]
   notifications notification[]
+  stockAlerts   stock_alert[]
 
   @@index(fields: [id, phone_number])
 }
@@ -221,12 +222,15 @@ model product {
 /// unit is the product, because variants are not yet a customer-facing concept
 /// and a wishlist is usually about the item, not a specific option combo.
 model user_favorite {
-  id        Int @id @default(autoincrement())
+  id        Int  @id @default(autoincrement())
   userId    Int
   productId Int
+  /// The size, colour, etc. the customer had chosen; null = the product in general.
+  variantId Int?
 
-  user    user    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    user             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant product_variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   created_at DateTime @default(now())
 
@@ -297,6 +301,8 @@ model product_variant {
   basketItems    basket_item[]
   orderItems     order_item[]
   stockMovements stock_movement[]
+  favorites      user_favorite[]
+  stockAlerts    stock_alert[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -894,4 +900,25 @@ model slug_redirect {
 
   @@unique([type, old_slug])
   @@index([type, targetId])
+}
+
+// ---------------------------------------------------------------------------
+// Back-in-stock alerts
+// ---------------------------------------------------------------------------
+
+/// A customer asked for an SMS when an out-of-stock variant can be bought again.
+/// Sent once; asking again after notification starts a new wait.
+model stock_alert {
+  id        Int             @id @default(autoincrement())
+  userId    Int
+  user      user            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variantId Int
+  variant   product_variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  created_at  DateTime  @default(now())
+  /// Set when the SMS went out.
+  notified_at DateTime?
+
+  @@unique([userId, variantId])
+  @@index([variantId, notified_at])
 }

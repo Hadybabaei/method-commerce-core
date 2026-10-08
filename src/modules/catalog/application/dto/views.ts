@@ -67,6 +67,8 @@ export interface ProductSummaryView {
   /** Null until the product has at least one active variant. */
   priceFrom: number | null
   priceTo: number | null
+  /** Approved customer ratings; null until the product has one. */
+  rating: { average: number; count: number } | null
   createdAt: Date
 }
 

@@ -18,6 +18,7 @@ import { StoreModule } from '@modules/store/store.module'
 import { PromotionsModule } from '@modules/promotions/promotions.module'
 import { BackofficeModule } from '@modules/backoffice/backoffice.module'
 import { SearchModule } from '@modules/search/search.module'
+import { StockAlertsModule } from '@modules/stock-alerts/stock-alerts.module'
 import {
   isOrderingJobsEnabled,
   assertProductionOrderingJobs,
@@ -86,6 +87,7 @@ assertProductionOrderingJobs()
     PromotionsModule,
     BackofficeModule,
     SearchModule,
+    StockAlertsModule,
     ...optionalModules,
   ],
   controllers: [HealthController],

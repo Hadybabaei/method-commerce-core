@@ -1,5 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { ProductSummaryResponse } from '@modules/catalog/presentation/dto/catalog.response'
+import {
+  ProductSummaryResponse,
+  ProductVariantResponse,
+} from '@modules/catalog/presentation/dto/catalog.response'
 import { FavoriteView } from '../../application/dto/views'
 
 export class FavoriteResponse implements FavoriteView {
@@ -11,4 +14,11 @@ export class FavoriteResponse implements FavoriteView {
 
   @ApiProperty({ type: ProductSummaryResponse })
   product: ProductSummaryResponse
+
+  @ApiProperty({
+    type: ProductVariantResponse,
+    nullable: true,
+    description: 'The saved variant; null = the product in general.',
+  })
+  variant: ProductVariantResponse | null
 }

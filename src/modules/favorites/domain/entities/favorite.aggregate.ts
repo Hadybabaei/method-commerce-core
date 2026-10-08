@@ -7,6 +7,8 @@ import { ProductFavoritedEvent, ProductUnfavoritedEvent } from '../events/favori
 export interface FavoriteProps {
   userId: number
   productId: number
+  /** The variant the customer had chosen; null = the product in general. */
+  variantId: number | null
   favoritedAt: Date
 }
 
@@ -22,7 +24,7 @@ export class Favorite extends AggregateRoot {
     this.props = props
   }
 
-  static create(input: { userId: number; productId: number }): Favorite {
+  static create(input: { userId: number; productId: number; variantId?: number | null }): Favorite {
     if (!Number.isInteger(input.userId) || input.userId <= 0) {
       throw new InvalidInputError('A favorite needs a user')
     }
@@ -33,6 +35,7 @@ export class Favorite extends AggregateRoot {
     const favorite = new Favorite(UNSAVED_ID, {
       userId: input.userId,
       productId: input.productId,
+      variantId: input.variantId ?? null,
       favoritedAt: new Date(),
     })
     favorite.addDomainEvent(new ProductFavoritedEvent(input.userId, input.productId))
@@ -50,6 +53,11 @@ export class Favorite extends AggregateRoot {
     }
   }
 
+  /** Remembers which size, colour, etc. the customer wants; null forgets it. */
+  chooseVariant(variantId: number | null): void {
+    this.props.variantId = variantId
+  }
+
   /** Records the removal before the row is deleted. */
   markRemoved(): void {
     this.addDomainEvent(new ProductUnfavoritedEvent(this.props.userId, this.props.productId))
@@ -61,6 +69,10 @@ export class Favorite extends AggregateRoot {
 
   get productId(): number {
     return this.props.productId
+  }
+
+  get variantId(): number | null {
+    return this.props.variantId
   }
 
   get favoritedAt(): Date {
