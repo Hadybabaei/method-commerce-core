@@ -29,6 +29,24 @@ services:
       timeout: 3s
       retries: 20
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.15
+    container_name: method-commerce-api-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_MASTER_KEY: ${MEILISEARCH_API_KEY:-change-me-master-key}
+      MEILI_NO_ANALYTICS: 'true'
+    ports:
+      - '${MEILISEARCH_PORT:-7700}:7700'
+    volumes:
+      - meili-data:/meili_data
+    healthcheck:
+      test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:7700/health']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     build:
       context: .
@@ -43,11 +61,15 @@ services:
       NODE_ENV: production
       DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-method-commerce}
       REDIS_URL: redis://redis:6379
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-change-me-master-key}
       OTP_EXPOSE_IN_RESPONSE: 'false'
     depends_on:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
     volumes:
       - api-uploads:/app/uploads
@@ -91,6 +113,7 @@ services:
 
 volumes:
   mysql-data:
+  meili-data:
   api-uploads:
   api-logs:
   minio-data:

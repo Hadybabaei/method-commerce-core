@@ -6,6 +6,7 @@ import { orderingJobsConfig } from './ordering-jobs.config'
 import { otpConfig } from './otp.config'
 import { paymentConfig } from './payment.config'
 import { redisConfig } from './redis.config'
+import { searchConfig } from './search.config'
 import { smsConfig } from './sms.config'
 import { storageConfig } from './storage.config'
 import { uploadConfig } from './upload.config'
@@ -19,6 +20,7 @@ export const configurations = [
   otpConfig,
   paymentConfig,
   redisConfig,
+  searchConfig,
   smsConfig,
   storageConfig,
   uploadConfig,
@@ -33,6 +35,7 @@ export * from './ordering-jobs.config'
 export * from './otp.config'
 export * from './payment.config'
 export * from './redis.config'
+export * from './search.config'
 export * from './sms.config'
 export * from './storage.config'
 export * from './upload.config'

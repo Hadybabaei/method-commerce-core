@@ -116,6 +116,18 @@ class EnvironmentVariables {
   @IsOptional()
   REDIS_ENABLED?: string
 
+  @IsString()
+  @IsOptional()
+  MEILISEARCH_URL?: string
+
+  @IsString()
+  @IsOptional()
+  MEILISEARCH_API_KEY?: string
+
+  @IsBooleanString()
+  @IsOptional()
+  SEARCH_REINDEX_ON_BOOT?: string
+
   @Type(() => Number)
   @IsInt()
   @IsOptional()

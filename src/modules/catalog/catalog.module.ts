@@ -1,3 +1,5 @@
+import { APP_INTERCEPTOR } from '@nestjs/core'
+import { CatalogChangeInterceptor } from './presentation/catalog-change.interceptor'
 import { CATALOG_SEO_READ_MODEL } from './application/ports/catalog-seo-read.port'
 import {
   GetSitemapUseCase,
@@ -92,6 +94,7 @@ const useCases = [
   ],
   providers: [
     { provide: CATEGORY_REPOSITORY, useClass: PrismaCategoryRepository },
+    { provide: APP_INTERCEPTOR, useClass: CatalogChangeInterceptor },
     { provide: BRAND_REPOSITORY, useClass: PrismaBrandRepository },
     { provide: PRODUCT_REPOSITORY, useClass: PrismaProductRepository },
     { provide: PRODUCT_READ_MODEL, useClass: PrismaProductReadModel },
