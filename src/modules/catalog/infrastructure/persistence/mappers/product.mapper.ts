@@ -34,6 +34,7 @@ export function toDomainProduct(record: ProductRecord): Product {
     shortDescription: record.short_description,
     published: record.publish,
     weightGrams: record.weightGrams,
+    taxExempt: record.tax_exempt,
     categoryId: record.categoryId,
     brandId: record.brandId,
     images: record.images.map((image) =>
@@ -79,6 +80,7 @@ export function toProductWriteData(product: Product) {
     short_description: product.shortDescription,
     publish: product.published,
     weightGrams: product.weightGrams,
+    tax_exempt: product.taxExempt,
     categoryId: product.categoryId,
     brandId: product.brandId,
   }

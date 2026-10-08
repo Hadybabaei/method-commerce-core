@@ -22,7 +22,11 @@ export class OrderItem {
     readonly quantity: number,
     readonly unitPrice: Money,
     readonly lineTotal: Money,
-    readonly productSnapshot: OrderProductSnapshot
+    readonly productSnapshot: OrderProductSnapshot,
+    /** VAT on this line; zero for exempt goods. */
+    readonly taxAmount: Money = Money.zero,
+    /** Share of the order discount; VAT is charged on lineTotal minus this. */
+    readonly discountAmount: Money = Money.zero
   ) {}
 
   static create(input: {
@@ -30,6 +34,8 @@ export class OrderItem {
     quantity: number
     unitPrice: Money
     snapshot: OrderProductSnapshot
+    taxAmount?: Money
+    discountAmount?: Money
   }): OrderItem {
     return new OrderItem(
       0,
@@ -37,7 +43,9 @@ export class OrderItem {
       input.quantity,
       input.unitPrice,
       input.unitPrice.multiply(input.quantity),
-      input.snapshot
+      input.snapshot,
+      input.taxAmount ?? Money.zero,
+      input.discountAmount ?? Money.zero
     )
   }
 
@@ -48,6 +56,8 @@ export class OrderItem {
     unitPrice: number
     lineTotal: number
     productSnapshot: OrderProductSnapshot
+    taxAmount?: number
+    discountAmount?: number
   }): OrderItem {
     return new OrderItem(
       input.id,
@@ -55,7 +65,9 @@ export class OrderItem {
       input.quantity,
       Money.fromMinor(input.unitPrice),
       Money.fromMinor(input.lineTotal),
-      input.productSnapshot
+      input.productSnapshot,
+      Money.fromMinor(input.taxAmount ?? 0),
+      Money.fromMinor(input.discountAmount ?? 0)
     )
   }
 }

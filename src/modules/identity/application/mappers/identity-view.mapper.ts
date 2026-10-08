@@ -34,6 +34,7 @@ export function toAdminView(admin: Admin): AdminView {
     id: admin.id,
     email: admin.email.value,
     role: admin.role,
+    permissions: admin.effectivePermissions,
     active: admin.isActive,
     firstName: admin.firstName,
     lastName: admin.lastName,

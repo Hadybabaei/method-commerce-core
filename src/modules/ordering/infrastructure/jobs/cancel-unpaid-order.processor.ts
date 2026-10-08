@@ -4,10 +4,7 @@ import { Job } from 'bullmq'
 import { PaymentMethod, PaymentStatus } from '../../domain/enums/order.enums'
 import { OrderNotCancellableError, OrderNotFoundError } from '../../domain/errors/ordering.errors'
 import { ORDER_REPOSITORY, OrderRepository } from '../../domain/repositories/order.repository'
-import {
-  PAYMENT_REPOSITORY,
-  PaymentRepository,
-} from '../../domain/repositories/payment.repository'
+import { PAYMENT_REPOSITORY, PaymentRepository } from '../../domain/repositories/payment.repository'
 import { CancelOrderUseCase } from '../../application/use-cases/cancel-order.use-case'
 import {
   CANCEL_UNPAID_ORDER_JOB,

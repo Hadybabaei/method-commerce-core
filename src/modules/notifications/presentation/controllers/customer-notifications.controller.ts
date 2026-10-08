@@ -9,13 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common'
-import {
-  ApiBearerAuth,
-  ApiOkResponse,
-  ApiOperation,
-  ApiParam,
-  ApiTags,
-} from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '@modules/identity/presentation/guards/jwt-auth.guard'
 import { CurrentActor } from '@shared/presentation/decorators/current-actor.decorator'
 import { ApiErrorResponses } from '@shared/presentation/swagger'
@@ -66,11 +60,7 @@ export class CustomerNotificationsController {
   @ApiOperation({ summary: 'Mark one notification as read' })
   @ApiParam({ name: 'id', example: 12 })
   @ApiOkResponse({ type: NotificationResponse })
-  @ApiErrorResponses(
-    HttpStatus.BAD_REQUEST,
-    HttpStatus.UNAUTHORIZED,
-    HttpStatus.NOT_FOUND
-  )
+  @ApiErrorResponses(HttpStatus.BAD_REQUEST, HttpStatus.UNAUTHORIZED, HttpStatus.NOT_FOUND)
   read(@CurrentActor('id') userId: number, @Param('id', ParseIntPipe) notificationId: number) {
     return this.markRead.execute({
       notificationId,

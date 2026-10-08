@@ -52,7 +52,12 @@ export class PrismaNotificationRepository implements NotificationRepository {
   }
 
   async list(query: NotificationListQuery): Promise<{ items: Notification[]; total: number }> {
-    const where = this.whereInbox(query.audience, query.recipientId, query.context, query.unreadOnly)
+    const where = this.whereInbox(
+      query.audience,
+      query.recipientId,
+      query.context,
+      query.unreadOnly
+    )
 
     const [records, total] = await this.prisma.$transaction([
       this.prisma.notification.findMany({

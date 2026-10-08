@@ -80,6 +80,7 @@ export class InMemoryUserRepository implements UserRepository {
       type: user.type,
       authLevel: user.authLevel,
       activated: user.isActivated,
+      blockedAt: user.blockedAt,
       avatar: user.avatar,
       otp: user.otp,
       refreshToken: user.refreshToken,
@@ -106,6 +107,7 @@ export class InMemoryUserRepository implements UserRepository {
       type: user.type,
       authLevel: user.authLevel,
       activated: user.isActivated,
+      blockedAt: user.blockedAt,
       avatar: user.avatar,
       otp: user.otp,
       refreshToken: user.refreshToken,
@@ -143,6 +145,7 @@ export class InMemoryAdminRepository implements AdminRepository {
       email: admin.email,
       passwordHash: admin.passwordHash,
       role: admin.role,
+      permissions: admin.permissions,
       active: admin.isActive,
       firstName: admin.firstName,
       lastName: admin.lastName,
@@ -172,6 +175,7 @@ export class InMemoryAdminRepository implements AdminRepository {
       email: admin.email,
       passwordHash: admin.passwordHash,
       role: admin.role,
+      permissions: admin.permissions,
       active: admin.isActive,
       firstName: admin.firstName,
       lastName: admin.lastName,
@@ -200,7 +204,9 @@ export class FakeTokenService implements TokenService {
   async verify(token: string): Promise<TokenClaims> {
     try {
       const [, payload] = token.split('.')
-      const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as TokenClaims & {
+      const parsed = JSON.parse(
+        Buffer.from(payload, 'base64url').toString('utf8')
+      ) as TokenClaims & {
         jti?: number
       }
       const { jti: _jti, ...claims } = parsed
@@ -332,15 +338,7 @@ export function createCustomerAuthHarness(): CustomerAuthHarness {
     otpGenerator,
     otpStore,
     tokens,
-    requestOtp: new RequestOtpUseCase(
-      users,
-      otpGenerator,
-      sms,
-      otpStore,
-      clock,
-      silentLogger,
-      cfg
-    ),
+    requestOtp: new RequestOtpUseCase(users, otpGenerator, sms, otpStore, clock, silentLogger, cfg),
     verifyOtp: new VerifyOtpUseCase(users, otpStore, tokens, clock),
     refresh: new RefreshAccessTokenUseCase(users, tokens),
     logout: new LogoutUseCase(users),

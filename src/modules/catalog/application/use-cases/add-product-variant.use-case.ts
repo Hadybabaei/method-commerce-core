@@ -11,7 +11,10 @@ import { INVENTORY_STOCK_WRITER, InventoryStockWriter } from '../ports/inventory
 import { PRODUCT_READ_MODEL, ProductReadModel } from '../ports/product-read.port'
 
 @Injectable()
-export class AddProductVariantUseCase implements UseCase<AddProductVariantCommand, ProductDetailView> {
+export class AddProductVariantUseCase implements UseCase<
+  AddProductVariantCommand,
+  ProductDetailView
+> {
   constructor(
     @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository,
     @Inject(PRODUCT_READ_MODEL) private readonly productReads: ProductReadModel,
@@ -35,9 +38,10 @@ export class AddProductVariantUseCase implements UseCase<AddProductVariantComman
       sku,
       selection: VariantSelection.create(command.options ?? []),
       price: Money.fromMinor(command.price),
-      salePrice: command.salePrice === undefined || command.salePrice === null
-        ? null
-        : Money.fromMinor(command.salePrice),
+      salePrice:
+        command.salePrice === undefined || command.salePrice === null
+          ? null
+          : Money.fromMinor(command.salePrice),
       weightGrams: command.weightGrams ?? null,
       image: command.image ?? null,
       isActive: command.isActive ?? true,

@@ -1,7 +1,4 @@
-import {
-  assertProductionOrderingJobs,
-  isOrderingJobsEnabled,
-} from './ordering-jobs.enabled'
+import { assertProductionOrderingJobs, isOrderingJobsEnabled } from './ordering-jobs.enabled'
 
 describe('ordering jobs gate', () => {
   const originalEnv = process.env.NODE_ENV

@@ -24,6 +24,12 @@ export const NotificationTypes = {
     orderCreated: 'order.created',
     orderCancelled: 'order.cancelled',
     orderPaid: 'order.paid',
+    orderProcessing: 'order.processing',
+    orderShipped: 'order.shipped',
+    returnRequested: 'order.return_requested',
+    returnApproved: 'order.return_approved',
+    returnRejected: 'order.return_rejected',
+    refundPaid: 'order.refund_paid',
     orderCompleted: 'order.completed',
   },
 } as const

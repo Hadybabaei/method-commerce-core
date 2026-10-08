@@ -1,6 +1,7 @@
 import { admin as AdminRecord } from '@prisma/client'
 import { Admin } from '../../../domain/entities/admin.aggregate'
 import { AdminRole } from '../../../domain/enums/roles.enum'
+import { permissionsFromJson } from '../../../domain/permissions'
 import { EmailAddress } from '../../../domain/value-objects/email-address.vo'
 import { PasswordResetToken } from '../../../domain/value-objects/password-reset-token.vo'
 
@@ -11,6 +12,7 @@ export function toDomainAdmin(record: AdminRecord): Admin {
     email: EmailAddress.fromPersistence(record.email),
     passwordHash: record.password,
     role: toAdminRole(record.role),
+    permissions: permissionsFromJson(record.permissions),
     active: record.status,
     firstName: record.first_name,
     lastName: record.last_name,
@@ -31,6 +33,7 @@ export function toAdminWriteData(admin: Admin) {
     email: admin.email.value,
     password: admin.passwordHash,
     role: admin.role,
+    permissions: admin.permissions,
     status: admin.isActive,
     first_name: admin.firstName,
     last_name: admin.lastName,

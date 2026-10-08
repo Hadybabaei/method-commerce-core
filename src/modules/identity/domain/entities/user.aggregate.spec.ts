@@ -1,4 +1,5 @@
 import {
+  AccountBlockedError,
   AccountDisabledError,
   InvalidOtpError,
   OtpExpiredError,
@@ -99,5 +100,21 @@ describe('User', () => {
 
     expect(user.profile?.firstName).toBe('Hady')
     expect(user.profile?.lastName).toBe('Babaei')
+  })
+})
+
+describe('User blocking', () => {
+  it('locks out a blocked customer until unblocked', () => {
+    const user = newUser()
+    user.confirmPhoneVerified(NOW)
+    expect(() => user.ensureActive()).not.toThrow()
+
+    user.block(LATER)
+    expect(user.blockedAt).toEqual(LATER)
+    expect(() => user.ensureActive()).toThrow(AccountBlockedError)
+    expect(() => user.ensureNotBlocked()).toThrow(AccountBlockedError)
+
+    user.unblock()
+    expect(() => user.ensureActive()).not.toThrow()
   })
 })

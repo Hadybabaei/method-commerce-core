@@ -18,9 +18,7 @@ export interface OrderPaymentTimeoutScheduler {
 export const ORDER_PAYMENT_TIMEOUT_SCHEDULER = Symbol('OrderPaymentTimeoutScheduler')
 
 /** Bound only by OrderingJobsModule — the ordering module resolves it lazily. */
-export const BULLMQ_ORDER_PAYMENT_TIMEOUT_SCHEDULER = Symbol(
-  'BullmqOrderPaymentTimeoutScheduler'
-)
+export const BULLMQ_ORDER_PAYMENT_TIMEOUT_SCHEDULER = Symbol('BullmqOrderPaymentTimeoutScheduler')
 
 export const UNPAID_ORDER_QUEUE = 'order-payment-timeout'
 export const CANCEL_UNPAID_ORDER_JOB = 'cancel-unpaid-order'

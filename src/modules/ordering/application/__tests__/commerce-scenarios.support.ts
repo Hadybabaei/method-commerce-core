@@ -53,10 +53,7 @@ import { CreateOrderUseCase } from '../use-cases/create-order.use-case'
 import { PreviewCheckoutUseCase } from '../use-cases/preview-checkout.use-case'
 import { CheckoutAssembler } from '../services/checkout-assembler.service'
 import { OrderNotificationService } from '../order-notification.service'
-import {
-  Notifications,
-  SendNotificationCommand,
-} from '@modules/notifications'
+import { Notifications, SendNotificationCommand } from '@modules/notifications'
 import { GetOrderUseCase } from '../use-cases/get-list-orders.use-case'
 import { HandlePaymentCallbackUseCase } from '../use-cases/handle-payment-callback.use-case'
 import { InitiatePaymentUseCase } from '../use-cases/initiate-payment.use-case'
@@ -65,6 +62,32 @@ import { ConfigService } from '@nestjs/config'
 import { OrderPaymentTimeoutScheduler } from '../ports/order-payment-timeout.port'
 import { UserRepository } from '@modules/identity/domain/repositories/user.repository'
 import { User } from '@modules/identity/domain/entities/user.aggregate'
+import { PhoneNumber } from '@modules/identity/domain/value-objects/phone-number.vo'
+import { StoreSettingsRepository } from '@modules/store/application/store-settings.port'
+import { StoreSettings } from '@modules/store/domain/store-settings'
+import { OrderStatusChange } from '../../domain/entities/order.aggregate'
+import { ShippingMethod } from '../../domain/entities/shipping-method.entity'
+import { ShippingMethodRepository } from '../../domain/repositories/shipping-method.repository'
+import { OrderSms, OrderSmsDispatcher } from '../ports/order-sms.port'
+import { GetInvoiceUseCase } from '../use-cases/get-invoice.use-case'
+import { PromotionEngineService } from '@modules/promotions/application/promotion-engine.service'
+import { PromotionRepository } from '@modules/promotions/application/promotion.ports'
+import { Promotion } from '@modules/promotions/domain/promotion.entity'
+import {
+  DecideReturnUseCase,
+  ListReturnRequestsUseCase,
+  RecordRefundUseCase,
+  RequestReturnUseCase,
+} from '../use-cases/returns.use-cases'
+import { ReturnRequest } from '../../domain/entities/return-request.aggregate'
+import { Refund } from '../../domain/entities/refund.entity'
+import { ReturnRequestStatus } from '../../domain/enums/order.enums'
+import { ReturnRequestRepository } from '../../domain/repositories/return-request.repository'
+import { RefundRepository } from '../../domain/repositories/refund.repository'
+import { PaginatedReturnRequestsView, ReturnRequestView } from '../dto/views'
+import { ProcessOrderUseCase } from '../use-cases/process-order.use-case'
+import { ShipOrderUseCase } from '../use-cases/ship-order.use-case'
+import { CreateShippingMethodUseCase } from '../use-cases/shipping-methods.use-cases'
 
 class AsyncMutex {
   private tail: Promise<void> = Promise.resolve()
@@ -242,6 +265,23 @@ export class InMemoryInventory implements InventoryReservationService {
     }
   }
 
+  async restock(
+    lines: ReadonlyArray<{ variantId: number; quantity: number }>,
+    plan: StockAllocationPlan
+  ): Promise<void> {
+    for (const line of lines) {
+      const locationId =
+        plan.allocations.find((row) => row.variantId === line.variantId)?.locationId ?? 1
+      const key = `${line.variantId}:${locationId}`
+      const level = this.levels.get(key)
+      if (level) {
+        level.onHand += line.quantity
+      } else {
+        this.seed(line.variantId, locationId, line.quantity)
+      }
+    }
+  }
+
   private lockFor(variantId: number): AsyncMutex {
     let mutex = this.locks.get(variantId)
     if (!mutex) {
@@ -252,9 +292,156 @@ export class InMemoryInventory implements InventoryReservationService {
   }
 }
 
+export class InMemoryReturnRequests implements ReturnRequestRepository {
+  private nextId = 1
+  readonly byId = new Map<number, ReturnRequest>()
+
+  async findById(id: number): Promise<ReturnRequest | null> {
+    const found = this.byId.get(id)
+    return found ? this.copy(found.id, found) : null
+  }
+
+  async listByOrder(orderId: number): Promise<ReturnRequest[]> {
+    return [...this.byId.values()]
+      .filter((request) => request.orderId === orderId)
+      .map((request) => this.copy(request.id, request))
+  }
+
+  async save(request: ReturnRequest): Promise<ReturnRequest> {
+    const id = request.id || this.nextId++
+    const saved = this.copy(id, request)
+    this.byId.set(id, saved)
+    return this.copy(id, saved)
+  }
+
+  private copy(id: number, request: ReturnRequest): ReturnRequest {
+    return ReturnRequest.fromPersistence(id, {
+      orderId: request.orderId,
+      userId: request.userId,
+      status: request.status,
+      reason: request.reason,
+      adminNote: request.adminNote,
+      items: request.items.map((line) => ({ ...line })),
+      decidedAt: request.decidedAt,
+      createdAt: request.createdAt,
+    })
+  }
+}
+
+export class InMemoryRefunds implements RefundRepository {
+  private nextId = 1
+  readonly all: Refund[] = []
+
+  async create(refund: Refund): Promise<Refund> {
+    const saved = Refund.fromPersistence(this.nextId++, {
+      orderId: refund.orderId,
+      returnRequestId: refund.returnRequestId,
+      amount: refund.amount,
+      restocked: refund.restocked,
+      reference: refund.reference,
+      note: refund.note,
+      paidAt: refund.paidAt,
+      adminId: refund.adminId,
+      createdAt: refund.createdAt,
+    })
+    this.all.push(saved)
+    return saved
+  }
+}
+
+/** Promotions kept in memory; the real PromotionEngineService runs on top of it. */
+export class InMemoryPromotions implements PromotionRepository {
+  private nextId = 1
+  readonly byId = new Map<number, Promotion>()
+  readonly redemptions: { promotionId: number; orderId: number; userId: number; amount: number }[] =
+    []
+
+  async findById(id: number): Promise<Promotion | null> {
+    return this.byId.get(id) ?? null
+  }
+
+  async findByCode(code: string): Promise<Promotion | null> {
+    return [...this.byId.values()].find((promotion) => promotion.code === code) ?? null
+  }
+
+  async listLiveCampaigns(now: Date): Promise<Promotion[]> {
+    return [...this.byId.values()].filter(
+      (promotion) =>
+        promotion.code === null &&
+        promotion.isActive &&
+        promotion.startsAt <= now &&
+        (promotion.endsAt === null || now < promotion.endsAt)
+    )
+  }
+
+  async list(): Promise<Promotion[]> {
+    return [...this.byId.values()]
+  }
+
+  async save(promotion: Promotion): Promise<Promotion> {
+    const id = promotion.id || this.nextId++
+    const saved = this.copy(id, promotion, promotion.usedCount)
+    this.byId.set(id, saved)
+    return saved
+  }
+
+  async delete(id: number): Promise<void> {
+    this.byId.delete(id)
+  }
+
+  async findByIdForUpdate(id: number): Promise<Promotion | null> {
+    return this.findById(id)
+  }
+
+  async countRedemptions(promotionId: number, userId: number): Promise<number> {
+    return this.redemptions.filter((r) => r.promotionId === promotionId && r.userId === userId)
+      .length
+  }
+
+  async addRedemption(input: {
+    promotionId: number
+    orderId: number
+    userId: number
+    amount: number
+  }): Promise<void> {
+    this.redemptions.push(input)
+    const promotion = this.byId.get(input.promotionId)!
+    this.byId.set(promotion.id, this.copy(promotion.id, promotion, promotion.usedCount + 1))
+  }
+
+  async releaseRedemption(orderId: number): Promise<void> {
+    const index = this.redemptions.findIndex((r) => r.orderId === orderId)
+    if (index < 0) return
+    const [released] = this.redemptions.splice(index, 1)
+    const promotion = this.byId.get(released.promotionId)!
+    this.byId.set(promotion.id, this.copy(promotion.id, promotion, promotion.usedCount - 1))
+  }
+
+  private copy(id: number, promotion: Promotion, usedCount: number): Promotion {
+    return Promotion.fromPersistence(id, {
+      name: promotion.name,
+      code: promotion.code,
+      kind: promotion.kind,
+      value: promotion.value,
+      maxDiscount: promotion.maxDiscount,
+      minSubtotal: promotion.minSubtotal,
+      startsAt: promotion.startsAt,
+      endsAt: promotion.endsAt,
+      usageLimit: promotion.usageLimit,
+      perCustomerLimit: promotion.perCustomerLimit,
+      categoryIds: promotion.categoryIds,
+      brandIds: promotion.brandIds,
+      isActive: promotion.isActive,
+      usedCount,
+    })
+  }
+}
+
 export class InMemoryOrderRepository implements OrderRepository {
   private nextId = 1
   readonly byId = new Map<number, Order>()
+  /** order_status_event rows by order id, oldest first. */
+  readonly history = new Map<number, OrderStatusChange[]>()
   private readonly locks = new Map<number, HoldMutex>()
   private readonly sequenceLock = new HoldMutex()
 
@@ -285,13 +472,21 @@ export class InMemoryOrderRepository implements OrderRepository {
     const id = this.nextId++
     const persisted = this.rehydrate(id, order)
     this.byId.set(id, persisted)
+    this.recordHistory(id, order)
     return this.clone(persisted)!
   }
 
   async save(order: Order): Promise<Order> {
     const persisted = this.rehydrate(order.id, order)
     this.byId.set(order.id, persisted)
+    this.recordHistory(order.id, order)
     return this.clone(persisted)!
+  }
+
+  private recordHistory(id: number, order: Order): void {
+    const rows = this.history.get(id) ?? []
+    rows.push(...order.pullStatusChanges())
+    this.history.set(id, rows)
   }
 
   async saveIfStatus(order: Order, expectedStatus: OrderStatus): Promise<Order> {
@@ -341,14 +536,24 @@ export class InMemoryOrderRepository implements OrderRepository {
           quantity: item.quantity,
           unitPrice: item.unitPrice.amount,
           lineTotal: item.lineTotal.amount,
+          taxAmount: item.taxAmount.amount,
+          discountAmount: item.discountAmount.amount,
           productSnapshot: item.productSnapshot,
         })
       ),
       addressSnapshot: order.addressSnapshot,
       note: order.note,
       stockAllocations: order.stockAllocations,
+      shipping: order.shipping,
+      taxRateBp: order.taxRateBp,
+      refundedTotal: order.refundedTotal,
+      discount: order.discount,
+      trackingCode: order.trackingCode,
+      trackingUrl: order.trackingUrl,
       cancelledAt: order.cancelledAt,
       paidAt: order.paidAt,
+      processingAt: order.processingAt,
+      shippedAt: order.shippedAt,
       completedAt: order.completedAt,
       createdAt: order.createdAt,
     })
@@ -482,8 +687,51 @@ export class InMemoryPaymentRepository implements PaymentRepository {
 class InMemoryOrderReads implements OrderReadModel {
   constructor(
     private readonly orders: InMemoryOrderRepository,
-    private readonly payments: InMemoryPaymentRepository
+    private readonly payments: InMemoryPaymentRepository,
+    private readonly returns: InMemoryReturnRequests,
+    private readonly refunds: InMemoryRefunds,
+    private readonly settings: InMemoryStoreSettings
   ) {}
+
+  private returnView(order: Order, request: ReturnRequest): ReturnRequestView {
+    return {
+      id: request.id,
+      status: request.status,
+      reason: request.reason,
+      adminNote: request.adminNote,
+      items: request.items.map((line) => {
+        const item = order.items.find((orderItem) => orderItem.id === line.orderItemId)
+        return {
+          orderItemId: line.orderItemId,
+          quantity: line.quantity,
+          title: item?.productSnapshot.title ?? '',
+          sku: item?.productSnapshot.sku ?? '',
+        }
+      }),
+      createdAt: request.createdAt,
+      decidedAt: request.decidedAt,
+    }
+  }
+
+  async listReturnRequests(query: {
+    status?: ReturnRequestStatus
+    limit: number
+    offset: number
+  }): Promise<PaginatedReturnRequestsView> {
+    const matching = [...this.returns.byId.values()].filter(
+      (request) => !query.status || request.status === query.status
+    )
+    const items = matching.slice(query.offset, query.offset + query.limit).map((request) => {
+      const order = this.orders.byId.get(request.orderId)!
+      return {
+        ...this.returnView(order, request),
+        orderId: order.id,
+        orderNumber: order.number,
+        userId: request.userId,
+      }
+    })
+    return { items, total: matching.length, limit: query.limit, offset: query.offset }
+  }
 
   async findById(id: number): Promise<OrderView | null> {
     const order = await this.orders.findById(id)
@@ -498,6 +746,28 @@ class InMemoryOrderReads implements OrderReadModel {
       paymentMethod: order.paymentMethod,
       itemCount: order.itemCount,
       subtotal: order.subtotal.amount,
+      shippingFee: order.shipping.fee.amount,
+      discountTotal: order.discountTotal.amount,
+      promotion: order.discount.promotion,
+      taxRateBp: order.taxRateBp,
+      taxTotal: order.taxTotal.amount,
+      refundedTotal: order.refundedTotal.amount,
+      total: order.total.amount,
+      shipping: {
+        method: order.shipping.method
+          ? {
+              id: order.shipping.method.methodId,
+              name: order.shipping.method.name,
+              code: order.shipping.method.code,
+              minDays: order.shipping.method.minDays,
+              maxDays: order.shipping.method.maxDays,
+            }
+          : null,
+        fee: order.shipping.fee.amount,
+        weightGrams: order.shipping.weightGrams,
+        trackingCode: order.trackingCode,
+        trackingUrl: order.trackingUrl,
+      },
       note: order.note,
       address: order.addressSnapshot,
       items: order.items.map((item) => ({
@@ -506,6 +776,8 @@ class InMemoryOrderReads implements OrderReadModel {
         quantity: item.quantity,
         unitPrice: item.unitPrice.amount,
         lineTotal: item.lineTotal.amount,
+        taxAmount: item.taxAmount.amount,
+        discountAmount: item.discountAmount.amount,
         product: item.productSnapshot,
       })),
       payment: payment
@@ -518,8 +790,34 @@ class InMemoryOrderReads implements OrderReadModel {
           }
         : null,
       canCancel: order.status === OrderStatus.Pending && !captured,
+      returns: [...this.returns.byId.values()]
+        .filter((request) => request.orderId === order.id)
+        .map((request) => this.returnView(order, request)),
+      refunds: this.refunds.all
+        .filter((refund) => refund.orderId === order.id)
+        .map((refund) => ({
+          id: refund.id,
+          amount: refund.amount.amount,
+          reference: refund.reference,
+          paidAt: refund.paidAt,
+          restocked: refund.restocked,
+          returnRequestId: refund.returnRequestId,
+          note: refund.note,
+        })),
+      returnableUntil:
+        order.status === OrderStatus.Completed && order.completedAt
+          ? ReturnRequest.windowEnd(order.completedAt, this.settings.current.returnWindowDays)
+          : null,
+      statusHistory: (this.orders.history.get(order.id) ?? []).map((change) => ({
+        from: change.from,
+        to: change.to,
+        note: change.note,
+        at: change.at,
+      })),
       cancelledAt: order.cancelledAt,
       paidAt: order.paidAt,
+      processingAt: order.processingAt,
+      shippedAt: order.shippedAt,
       completedAt: order.completedAt,
       createdAt: order.createdAt,
     }
@@ -567,7 +865,9 @@ class InMemoryBaskets implements BasketRepository, BasketReadModel {
     const persisted = Basket.fromPersistence(
       id,
       basket.userId,
-      basket.getItems().map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
+      basket
+        .getItems()
+        .map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
     )
     this.byUser.set(basket.userId, persisted)
     return this.clone(persisted)
@@ -615,7 +915,9 @@ class InMemoryBaskets implements BasketRepository, BasketReadModel {
     return Basket.fromPersistence(
       basket.id,
       basket.userId,
-      basket.getItems().map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
+      basket
+        .getItems()
+        .map((item) => BasketItem.fromPersistence(item.variantId, item.quantityValue))
     )
   }
 
@@ -744,10 +1046,7 @@ export class FakePaymentGateway implements PaymentGateway {
 
 function fakePrisma(): PrismaService {
   return {
-    $transaction: async <T>(
-      fn: (tx: unknown) => Promise<T>,
-      _options?: unknown
-    ): Promise<T> => {
+    $transaction: async <T>(fn: (tx: unknown) => Promise<T>, _options?: unknown): Promise<T> => {
       const tx: LockBag = { _releases: [] }
       try {
         return await fn(tx)
@@ -761,9 +1060,10 @@ function fakePrisma(): PrismaService {
   } as unknown as PrismaService
 }
 
+/** Every user id exists, with phone 0912 followed by the id padded to 7 digits. */
 class InMemoryUsers implements UserRepository {
-  async findById(): Promise<User | null> {
-    return null
+  async findById(id: number): Promise<User | null> {
+    return User.register(PhoneNumber.create(phoneFor(id)), new Date())
   }
 
   async findByPhoneNumber(): Promise<User | null> {
@@ -825,6 +1125,11 @@ export function defaultVariant(
     isActive: true,
     unitPrice: 1_000_000,
     compareAtPrice: null,
+    weightGrams: 500,
+    taxExempt: false,
+    categoryId: null,
+    categoryPath: null,
+    brandId: null,
     availableQuantity: 10,
     options: [{ option: 'رنگ', value: 'قرمز' }],
     image: null,
@@ -838,6 +1143,87 @@ export class RecordingNotifications implements Notifications {
 
   async sendNotification(command: SendNotificationCommand): Promise<void> {
     this.sent.push(command)
+  }
+}
+
+/** VAT defaults to 0% so totals in older scenarios stay subtotal + shipping. */
+export class InMemoryStoreSettings implements StoreSettingsRepository {
+  current: StoreSettings = {
+    vatRateBp: 0,
+    returnWindowDays: 7,
+    seller: {
+      legalName: 'شرکت متد',
+      economicCode: '411111111111',
+      nationalId: null,
+      registrationNo: null,
+      address: 'تهران',
+      postalCode: '1234567890',
+      phone: null,
+    },
+  }
+
+  async get(): Promise<StoreSettings> {
+    return structuredClone(this.current)
+  }
+
+  async save(settings: StoreSettings): Promise<StoreSettings> {
+    this.current = structuredClone(settings)
+    return this.get()
+  }
+}
+
+export const phoneFor = (userId: number) => `0912${String(userId).padStart(7, '0')}`
+
+export class RecordingOrderSms implements OrderSmsDispatcher {
+  readonly sent: OrderSms[] = []
+
+  async dispatch(sms: OrderSms): Promise<void> {
+    this.sent.push(sms)
+  }
+}
+
+export class InMemoryShippingMethods implements ShippingMethodRepository {
+  private nextId = 1
+  private readonly byId = new Map<number, ShippingMethod>()
+
+  async findById(id: number): Promise<ShippingMethod | null> {
+    return this.byId.get(id) ?? null
+  }
+
+  async findByCode(code: string): Promise<ShippingMethod | null> {
+    return [...this.byId.values()].find((method) => method.code === code) ?? null
+  }
+
+  async list(): Promise<ShippingMethod[]> {
+    return [...this.byId.values()].sort((a, b) => a.position - b.position || a.id - b.id)
+  }
+
+  async listActive(): Promise<ShippingMethod[]> {
+    return (await this.list()).filter((method) => method.isActive)
+  }
+
+  async save(method: ShippingMethod): Promise<ShippingMethod> {
+    const id = method.id || this.nextId++
+    const saved = ShippingMethod.fromPersistence(id, {
+      name: method.name,
+      code: method.code,
+      description: method.description,
+      baseFee: method.baseFee,
+      perKgFee: method.perKgFee,
+      freeAbove: method.freeAbove,
+      minDays: method.minDays,
+      maxDays: method.maxDays,
+      provinceIds: method.provinceIds,
+      trackingUrlTemplate: method.trackingUrlTemplate,
+      isActive: method.isActive,
+      position: method.position,
+    })
+    this.byId.set(id, saved)
+    return saved
+  }
+
+  async delete(id: number): Promise<void> {
+    this.byId.delete(id)
   }
 }
 
@@ -855,6 +1241,20 @@ export interface CommerceHarness {
   cancelOrder: CancelOrderUseCase
   confirmCod: ConfirmCodPaymentUseCase
   completeOrder: CompleteOrderUseCase
+  processOrder: ProcessOrderUseCase
+  shipOrder: ShipOrderUseCase
+  shippingMethods: InMemoryShippingMethods
+  storeSettings: InMemoryStoreSettings
+  promotions: InMemoryPromotions
+  getInvoice: GetInvoiceUseCase
+  returnRequests: InMemoryReturnRequests
+  refunds: InMemoryRefunds
+  requestReturn: RequestReturnUseCase
+  listReturns: ListReturnRequestsUseCase
+  decideReturn: DecideReturnUseCase
+  recordRefund: RecordRefundUseCase
+  createShippingMethod: CreateShippingMethodUseCase
+  sms: RecordingOrderSms
   getOrder: GetOrderUseCase
   initiatePayment: InitiatePaymentUseCase
   handleCallback: HandlePaymentCallbackUseCase
@@ -865,10 +1265,7 @@ export interface CommerceHarness {
   runDueUnpaidCancels: () => Promise<void>
   seedStock: (variantId: number, onHand: number, locationId?: number) => void
   seedCatalogVariant: (variant: SellableVariantSnapshot) => void
-  seedUserBasket: (
-    userId: number,
-    lines: Array<{ variantId: number; quantity: number }>
-  ) => void
+  seedUserBasket: (userId: number, lines: Array<{ variantId: number; quantity: number }>) => void
   seedUserAddress: (userId: number, addressId?: number) => number
   /** Helper: Zibal-shaped success callback for a trackId. */
   successCallbackRaw: (trackId: string) => Record<string, string>
@@ -936,15 +1333,35 @@ export function createCommerceHarness(): CommerceHarness {
   const addresses = new InMemoryAddresses()
   const orders = new InMemoryOrderRepository()
   const payments = new InMemoryPaymentRepository()
-  const orderReads = new InMemoryOrderReads(orders, payments)
+  const returnRequests = new InMemoryReturnRequests()
+  const refunds = new InMemoryRefunds()
+  const storeSettings = new InMemoryStoreSettings()
+  const promotions = new InMemoryPromotions()
+  const promotionEngine = new PromotionEngineService(promotions)
+  const orderReads = new InMemoryOrderReads(
+    orders,
+    payments,
+    returnRequests,
+    refunds,
+    storeSettings
+  )
   const prisma = fakePrisma()
   const gateway = new FakePaymentGateway()
   const paymentTimeouts = new InMemoryOrderPaymentTimeoutScheduler(() => clock.now().getTime())
   const orderingConfig = orderingConfigService()
   const notifications = new RecordingNotifications()
-  const orderNotifications = new OrderNotificationService(notifications)
-  const assembler = new CheckoutAssembler(addresses, asAddressReads(addresses), variantLookup)
   const users = new InMemoryUsers()
+  const sms = new RecordingOrderSms()
+  const shippingMethods = new InMemoryShippingMethods()
+  const orderNotifications = new OrderNotificationService(notifications, users, sms)
+  const assembler = new CheckoutAssembler(
+    addresses,
+    asAddressReads(addresses),
+    variantLookup,
+    shippingMethods,
+    storeSettings,
+    promotionEngine
+  )
   const cancelOrder = new CancelOrderUseCase(
     orders,
     orderReads,
@@ -952,7 +1369,8 @@ export function createCommerceHarness(): CommerceHarness {
     payments,
     paymentTimeouts,
     orderNotifications,
-    prisma
+    prisma,
+    promotionEngine
   )
   const handleCallback = new HandlePaymentCallbackUseCase(
     orders,
@@ -999,6 +1417,44 @@ export function createCommerceHarness(): CommerceHarness {
       prisma
     ),
     completeOrder: new CompleteOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
+    processOrder: new ProcessOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
+    shipOrder: new ShipOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
+    shippingMethods,
+    storeSettings,
+    promotions,
+    getInvoice: new GetInvoiceUseCase(orderReads, storeSettings, users),
+    returnRequests,
+    refunds,
+    requestReturn: new RequestReturnUseCase(
+      orders,
+      orderReads,
+      returnRequests,
+      storeSettings,
+      clock,
+      orderNotifications,
+      prisma
+    ),
+    listReturns: new ListReturnRequestsUseCase(orderReads),
+    decideReturn: new DecideReturnUseCase(
+      orders,
+      orderReads,
+      returnRequests,
+      clock,
+      orderNotifications,
+      prisma
+    ),
+    recordRefund: new RecordRefundUseCase(
+      orders,
+      orderReads,
+      returnRequests,
+      refunds,
+      inventory,
+      clock,
+      orderNotifications,
+      prisma
+    ),
+    createShippingMethod: new CreateShippingMethodUseCase(shippingMethods),
+    sms,
     getOrder: new GetOrderUseCase(orderReads),
     initiatePayment: new InitiatePaymentUseCase(orders, payments, gateway, users, clock, prisma),
     handleCallback,

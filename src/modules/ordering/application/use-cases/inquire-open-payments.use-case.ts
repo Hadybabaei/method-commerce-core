@@ -1,14 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { CLOCK, Clock } from '@shared/application/ports/clock.port'
 import { UseCase } from '@shared/application/use-case'
-import {
-  ORDER_REPOSITORY,
-  OrderRepository,
-} from '../../domain/repositories/order.repository'
-import {
-  PAYMENT_REPOSITORY,
-  PaymentRepository,
-} from '../../domain/repositories/payment.repository'
+import { ORDER_REPOSITORY, OrderRepository } from '../../domain/repositories/order.repository'
+import { PAYMENT_REPOSITORY, PaymentRepository } from '../../domain/repositories/payment.repository'
 import {
   PAYMENT_INQUIRY_BATCH_LIMIT,
   isPaymentInquiryCandidate,

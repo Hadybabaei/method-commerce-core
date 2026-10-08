@@ -4,14 +4,12 @@ import {
   BasketReadModel,
 } from '@modules/basket/application/ports/basket-read.port'
 import { UseCase } from '@shared/application/use-case'
+import { Money } from '@shared/domain/value-objects/money'
 import { PaymentMethod } from '../../domain/enums/order.enums'
 import { BasketNotReadyError, EmptyBasketError } from '../../domain/errors/ordering.errors'
 import { Order } from '../../domain/entities/order.aggregate'
 import { CheckoutPreviewView, CreateOrderCommand } from '../dto/views'
-import {
-  CHECKOUT_SHIPPING_FEE_RIAL,
-  CheckoutAssembler,
-} from '../services/checkout-assembler.service'
+import { CheckoutAssembler } from '../services/checkout-assembler.service'
 
 @Injectable()
 export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, CheckoutPreviewView> {
@@ -37,11 +35,28 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
     }
 
     const address = await this.assembler.requireOwnedAddress(command.userId, command.addressId)
-    const items = await this.assembler.buildItems(basketView.items)
+    const lines = await this.assembler.buildItems(basketView.items)
+    const { weightGrams, taxRateBp } = lines
     const note = Order.normalizeNote(command.note)
     const paymentMethod = command.paymentMethod ?? PaymentMethod.CashOnDelivery
-    const subtotal = items.reduce((sum, item) => sum + item.lineTotal.amount, 0)
-    const shippingFee = CHECKOUT_SHIPPING_FEE_RIAL
+    const subtotal = lines.items.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
+    const shipping = await this.assembler.quoteShipping({
+      provinceId: address.province.id,
+      subtotal,
+      weightGrams,
+      shippingMethodId: command.shippingMethodId,
+    })
+    const shippingFee = shipping.selected?.fee.amount ?? 0
+    const { applied, couponOutranked } = await this.assembler.choosePromotion({
+      userId: command.userId,
+      couponCode: command.couponCode,
+      lines,
+      shippingFee,
+      now: new Date(),
+    })
+    const { items, discount } = CheckoutAssembler.applyDiscount(lines, applied)
+    const taxTotal = items.reduce((sum, item) => sum + item.taxAmount.amount, 0)
+    const discountTotal = discount.total.amount
 
     return {
       address,
@@ -50,12 +65,30 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
         quantity: item.quantity,
         unitPrice: item.unitPrice.amount,
         lineTotal: item.lineTotal.amount,
+        discountAmount: item.discountAmount.amount,
+        taxAmount: item.taxAmount.amount,
         product: item.productSnapshot,
       })),
       itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
-      subtotal,
+      subtotal: subtotal.amount,
+      weightGrams,
+      shippingMethods: shipping.options.map(({ method, fee }) => ({
+        id: method.id,
+        name: method.name,
+        code: method.code,
+        description: method.description,
+        fee: fee.amount,
+        minDays: method.minDays,
+        maxDays: method.maxDays,
+      })),
+      shippingMethodId: shipping.selected?.method.id ?? null,
       shippingFee,
-      total: subtotal + shippingFee,
+      discountTotal,
+      promotion: discount.promotion,
+      couponOutranked,
+      taxRateBp,
+      taxTotal,
+      total: subtotal.amount + shippingFee - discountTotal + taxTotal,
       paymentMethod,
       note,
     }

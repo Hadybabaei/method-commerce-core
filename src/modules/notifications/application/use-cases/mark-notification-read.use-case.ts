@@ -6,7 +6,11 @@ import {
   NOTIFICATION_REPOSITORY,
   NotificationRepository,
 } from '../../domain/repositories/notification.repository'
-import { MarkAllNotificationsReadCommand, MarkNotificationReadCommand, NotificationView } from '../dto/views'
+import {
+  MarkAllNotificationsReadCommand,
+  MarkNotificationReadCommand,
+  NotificationView,
+} from '../dto/views'
 import { toNotificationView } from '../mappers/notification-view.mapper'
 
 @Injectable()

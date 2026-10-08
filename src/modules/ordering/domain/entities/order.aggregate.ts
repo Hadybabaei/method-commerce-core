@@ -7,11 +7,49 @@ import {
   OrderNotCompletableError,
   OrderNotOwnedError,
   OrderNotPayableError,
+  OrderNotProcessableError,
+  OrderNotShippableError,
   InvalidOrderNoteError,
+  InvalidTrackingCodeError,
 } from '../errors/ordering.errors'
 import { OrderReservationStatus, OrderStatus, PaymentMethod } from '../enums/order.enums'
 import { OrderItem } from './order-item.entity'
+import { ShippingSnapshot } from './shipping-method.entity'
 import { StockAllocationPlan } from '../value-objects/stock-allocation.vo'
+
+const MAX_TRACKING_CODE_LENGTH = 100
+
+/** How the order is delivered; `method` is null when the store had none configured. */
+export interface OrderShipping {
+  method: ShippingSnapshot | null
+  fee: Money
+  weightGrams: number
+}
+
+/** The promotion an order used, frozen at checkout. */
+export interface OrderPromotionSnapshot {
+  id: number
+  name: string
+  code: string | null
+  kind: string
+  value: number
+}
+
+export interface OrderDiscount {
+  /** Goods plus shipping discount. */
+  total: Money
+  promotion: OrderPromotionSnapshot | null
+}
+
+const NO_DISCOUNT: OrderDiscount = { total: Money.zero, promotion: null }
+
+/** A status change not yet written to the history table. */
+export interface OrderStatusChange {
+  from: OrderStatus | null
+  to: OrderStatus
+  at: Date
+  note: string | null
+}
 
 export interface AddressSnapshot {
   id: number
@@ -41,8 +79,18 @@ export interface OrderProps {
   addressSnapshot: AddressSnapshot
   note: string | null
   stockAllocations: StockAllocationPlan
+  shipping: OrderShipping
+  /** VAT rate at checkout in basis points; line tax amounts are already computed with it. */
+  taxRateBp: number
+  /** Sum of refunds recorded so far. */
+  refundedTotal: Money
+  discount: OrderDiscount
+  trackingCode: string | null
+  trackingUrl: string | null
   cancelledAt: Date | null
   paidAt: Date | null
+  processingAt: Date | null
+  shippedAt: Date | null
   completedAt: Date | null
   createdAt: Date
 }
@@ -53,8 +101,13 @@ export interface CreateOrderInput {
   paymentMethod: PaymentMethod
   items: OrderItem[]
   addressSnapshot: AddressSnapshot
+  shipping?: OrderShipping
+  taxRateBp?: number
+  discount?: OrderDiscount
   note?: string | null
 }
+
+const NO_SHIPPING: OrderShipping = { method: null, fee: Money.zero, weightGrams: 0 }
 
 /**
  * A customer's checkout. Lines and the delivery address are frozen at create
@@ -62,6 +115,7 @@ export interface CreateOrderInput {
  */
 export class Order extends AggregateRoot {
   private props: OrderProps
+  private statusChanges: OrderStatusChange[] = []
 
   private constructor(id: number, props: OrderProps) {
     super(id)
@@ -74,8 +128,9 @@ export class Order extends AggregateRoot {
     }
 
     const note = Order.normalizeNote(input.note)
+    const createdAt = new Date()
 
-    return new Order(UNSAVED_ID, {
+    const order = new Order(UNSAVED_ID, {
       number: input.number,
       userId: input.userId,
       status: OrderStatus.Pending,
@@ -85,11 +140,21 @@ export class Order extends AggregateRoot {
       addressSnapshot: input.addressSnapshot,
       note,
       stockAllocations: StockAllocationPlan.empty(),
+      shipping: input.shipping ?? NO_SHIPPING,
+      taxRateBp: input.taxRateBp ?? 0,
+      refundedTotal: Money.zero,
+      discount: input.discount ?? NO_DISCOUNT,
+      trackingCode: null,
+      trackingUrl: null,
       cancelledAt: null,
       paidAt: null,
+      processingAt: null,
+      shippedAt: null,
       completedAt: null,
-      createdAt: new Date(),
+      createdAt,
     })
+    order.statusChanges.push({ from: null, to: OrderStatus.Pending, at: createdAt, note: null })
+    return order
   }
 
   static fromPersistence(id: number, props: OrderProps): Order {
@@ -131,7 +196,7 @@ export class Order extends AggregateRoot {
       })
     }
 
-    this.props.status = OrderStatus.Pending
+    this.transitionTo(OrderStatus.Pending, new Date(), 'Revived by a late online payment')
     this.props.cancelledAt = null
     this.props.reservationStatus = OrderReservationStatus.None
     this.props.stockAllocations = StockAllocationPlan.empty()
@@ -143,8 +208,9 @@ export class Order extends AggregateRoot {
       throw new OrderNotCancellableError(this.props.status)
     }
 
-    this.props.status = OrderStatus.Cancelled
-    this.props.cancelledAt = new Date()
+    const now = new Date()
+    this.transitionTo(OrderStatus.Cancelled, now)
+    this.props.cancelledAt = now
 
     if (this.props.reservationStatus === OrderReservationStatus.Reserved) {
       this.props.reservationStatus = OrderReservationStatus.Released
@@ -212,21 +278,91 @@ export class Order extends AggregateRoot {
     this.capturePayment(now)
   }
 
+  /** Operator starts picking and packing a paid order. */
+  startProcessing(now: Date): void {
+    if (this.props.status === OrderStatus.Processing) {
+      return
+    }
+
+    if (this.props.status !== OrderStatus.Paid) {
+      throw new OrderNotProcessableError(this.props.status)
+    }
+
+    this.transitionTo(OrderStatus.Processing, now)
+    this.props.processingAt = now
+  }
+
+  /**
+   * Hands the parcel to the carrier. Re-shipping an already shipped order only
+   * corrects the tracking details. Without an explicit URL, the method's
+   * template builds one from the code.
+   */
+  ship(now: Date, input: { trackingCode?: string | null; trackingUrl?: string | null } = {}): void {
+    const shippable = [OrderStatus.Paid, OrderStatus.Processing, OrderStatus.Shipped]
+    if (!shippable.includes(this.props.status)) {
+      throw new OrderNotShippableError(this.props.status)
+    }
+
+    const trackingCode = Order.normalizeTrackingCode(input.trackingCode)
+    const template = this.props.shipping.method?.trackingUrlTemplate ?? null
+    const trackingUrl =
+      input.trackingUrl?.trim() ||
+      (trackingCode && template
+        ? template.replace('{code}', encodeURIComponent(trackingCode))
+        : null)
+
+    this.props.trackingCode = trackingCode
+    this.props.trackingUrl = trackingUrl
+
+    if (this.props.status === OrderStatus.Shipped) {
+      return
+    }
+
+    if (this.props.processingAt === null) {
+      this.props.processingAt = now
+    }
+    this.transitionTo(
+      OrderStatus.Shipped,
+      now,
+      trackingCode ? `Tracking code ${trackingCode}` : null
+    )
+    this.props.shippedAt = now
+  }
+
+  /** Delivered to the customer. Paid orders may skip processing and shipping (e.g. pickup). */
   complete(now: Date): void {
     if (this.props.status === OrderStatus.Completed) {
       return
     }
 
-    if (this.props.status !== OrderStatus.Paid) {
+    const completable = [OrderStatus.Paid, OrderStatus.Processing, OrderStatus.Shipped]
+    if (!completable.includes(this.props.status)) {
       throw new OrderNotCompletableError(this.props.status)
     }
 
-    this.props.status = OrderStatus.Completed
+    this.transitionTo(OrderStatus.Completed, now)
     this.props.completedAt = now
   }
 
+  /** Raises the refunded total; Refund.record checks the amount first. */
+  recordRefund(amount: Money): void {
+    this.props.refundedTotal = this.props.refundedTotal.add(amount)
+  }
+
+  /** Status changes since the last call, oldest first. The repository writes them to history. */
+  pullStatusChanges(): OrderStatusChange[] {
+    const changes = this.statusChanges
+    this.statusChanges = []
+    return changes
+  }
+
+  private transitionTo(to: OrderStatus, at: Date, note: string | null = null): void {
+    this.statusChanges.push({ from: this.props.status, to, at, note })
+    this.props.status = to
+  }
+
   private capturePayment(now: Date): void {
-    this.props.status = OrderStatus.Paid
+    this.transitionTo(OrderStatus.Paid, now)
     this.props.paidAt = now
     this.props.reservationStatus = OrderReservationStatus.Consumed
   }
@@ -284,8 +420,28 @@ export class Order extends AggregateRoot {
     return this.props.paidAt
   }
 
+  get processingAt(): Date | null {
+    return this.props.processingAt
+  }
+
+  get shippedAt(): Date | null {
+    return this.props.shippedAt
+  }
+
   get completedAt(): Date | null {
     return this.props.completedAt
+  }
+
+  get shipping(): OrderShipping {
+    return this.props.shipping
+  }
+
+  get trackingCode(): string | null {
+    return this.props.trackingCode
+  }
+
+  get trackingUrl(): string | null {
+    return this.props.trackingUrl
   }
 
   get createdAt(): Date {
@@ -300,8 +456,49 @@ export class Order extends AggregateRoot {
     return this.props.items.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
   }
 
+  get taxRateBp(): number {
+    return this.props.taxRateBp
+  }
+
+  /** VAT across all lines. */
+  get taxTotal(): Money {
+    return this.props.items.reduce((sum, item) => sum.add(item.taxAmount), Money.zero)
+  }
+
+  /** Goods and shipping discount together. */
+  get discountTotal(): Money {
+    return this.props.discount.total
+  }
+
+  get discount(): OrderDiscount {
+    return this.props.discount
+  }
+
+  /** What the customer pays: subtotal + shipping − discount + VAT. */
+  get total(): Money {
+    return this.subtotal
+      .add(this.props.shipping.fee)
+      .subtract(this.props.discount.total)
+      .add(this.taxTotal)
+  }
+
+  get refundedTotal(): Money {
+    return this.props.refundedTotal
+  }
+
   get canCancel(): boolean {
     return this.props.status === OrderStatus.Pending
+  }
+
+  static normalizeTrackingCode(code: string | null | undefined): string | null {
+    const trimmed = code?.trim()
+    if (!trimmed) {
+      return null
+    }
+    if (trimmed.length > MAX_TRACKING_CODE_LENGTH) {
+      throw new InvalidTrackingCodeError()
+    }
+    return trimmed
   }
 
   static normalizeNote(note: string | null | undefined): string | null {

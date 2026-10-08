@@ -1,4 +1,5 @@
 import { AggregateRoot } from '@shared/domain/aggregate-root.base'
+import { ADMIN_PERMISSIONS, AdminPermission } from '../permissions'
 import { UNSAVED_ID } from '@shared/domain/identifier'
 import { PasswordHasher } from '@shared/domain/services/password-hasher'
 import { AdminRole } from '../enums/roles.enum'
@@ -23,6 +24,8 @@ export interface AdminProps {
   email: EmailAddress
   passwordHash: string
   role: AdminRole
+  /** Ignored for the super admin, who holds every permission. */
+  permissions: AdminPermission[]
   active: boolean
   firstName: string | null
   lastName: string | null
@@ -63,6 +66,7 @@ export class Admin extends AggregateRoot {
       email: EmailAddress
       password: PlainPassword
       role: AdminRole
+      permissions?: AdminPermission[]
       firstName?: string | null
       lastName?: string | null
       nationalId?: string | null
@@ -77,6 +81,7 @@ export class Admin extends AggregateRoot {
       email: input.email,
       passwordHash: await hasher.hash(input.password.value),
       role: input.role,
+      permissions: input.permissions ?? [],
       active: true,
       firstName: input.firstName ?? null,
       lastName: input.lastName ?? null,
@@ -111,6 +116,26 @@ export class Admin extends AggregateRoot {
     }
 
     this.ensureActive()
+  }
+
+  /** The super admin may do everything; others what their account lists. */
+  hasPermission(permission: AdminPermission): boolean {
+    return this.props.role === AdminRole.SuperAdmin || this.props.permissions.includes(permission)
+  }
+
+  /** Every permission this admin effectively holds. */
+  get effectivePermissions(): AdminPermission[] {
+    return this.props.role === AdminRole.SuperAdmin
+      ? [...ADMIN_PERMISSIONS]
+      : [...this.props.permissions]
+  }
+
+  get permissions(): AdminPermission[] {
+    return this.props.permissions
+  }
+
+  setPermissions(permissions: AdminPermission[]): void {
+    this.props = { ...this.props, permissions: [...permissions] }
   }
 
   ensureActive(): void {

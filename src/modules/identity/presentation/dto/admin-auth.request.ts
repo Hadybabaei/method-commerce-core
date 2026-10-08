@@ -1,5 +1,15 @@
+import { ADMIN_PERMISSIONS, AdminPermission } from '../../domain/permissions'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator'
+import {
+  IsArray,
+  IsEmail,
+  IsEnum,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator'
 import { AdminRole } from '../../domain/enums/roles.enum'
 
 export class AdminLoginRequest {
@@ -61,6 +71,16 @@ export class CreateAdminRequest {
   @IsEnum(AdminRole)
   role: AdminRole
 
+  @ApiPropertyOptional({
+    type: [String],
+    enum: ADMIN_PERMISSIONS,
+    description: 'Ignored for the super admin role, which holds every permission.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsIn([...ADMIN_PERMISSIONS], { each: true })
+  permissions?: AdminPermission[]
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -88,4 +108,11 @@ export class CreateAdminRequest {
   @IsOptional()
   @IsString()
   phone_number?: string
+}
+
+export class UpdateAdminPermissionsRequest {
+  @ApiProperty({ type: [String], enum: ADMIN_PERMISSIONS, example: ['orders', 'refunds'] })
+  @IsArray()
+  @IsIn([...ADMIN_PERMISSIONS], { each: true })
+  permissions: AdminPermission[]
 }

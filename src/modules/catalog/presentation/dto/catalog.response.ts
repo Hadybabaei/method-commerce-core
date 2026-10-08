@@ -188,6 +188,9 @@ export class ProductDetailResponse extends ProductSummaryResponse implements Pro
   @ApiProperty({ example: 1800, description: 'Shipping weight in grams.' })
   weightGrams: number
 
+  @ApiProperty({ example: false, description: 'Exempt goods carry no VAT.' })
+  taxExempt: boolean
+
   @ApiProperty({ type: [ProductImageResponse] })
   images: ProductImageResponse[]
 

@@ -53,7 +53,12 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   }
 
   async list(query: NotificationListQuery): Promise<{ items: Notification[]; total: number }> {
-    const filtered = this.matching(query.audience, query.recipientId, query.context, query.unreadOnly)
+    const filtered = this.matching(
+      query.audience,
+      query.recipientId,
+      query.context,
+      query.unreadOnly
+    )
     const items = filtered.slice(query.offset, query.offset + query.limit)
     return { items, total: filtered.length }
   }

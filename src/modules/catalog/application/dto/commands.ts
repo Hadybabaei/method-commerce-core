@@ -46,6 +46,7 @@ export interface CreateProductCommand {
   shortDescription?: string | null
   published?: boolean
   weightGrams?: number
+  taxExempt?: boolean
   categoryId?: number | null
   brandId?: number | null
   images?: ProductImageCommand[]
@@ -60,6 +61,7 @@ export interface UpdateProductCommand {
   shortDescription?: string | null
   published?: boolean
   weightGrams?: number
+  taxExempt?: boolean
   categoryId?: number | null
   brandId?: number | null
   /** When present, replaces the whole image list. */

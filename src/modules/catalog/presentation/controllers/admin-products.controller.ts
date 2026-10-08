@@ -1,3 +1,4 @@
+import { RequirePermission } from '@shared/presentation/decorators/require-permission.decorator'
 import {
   Body,
   Controller,
@@ -47,6 +48,7 @@ import { ProductDetailResponse, ProductSummaryResponse } from '../dto/catalog.re
 @ApiTags('Admin catalog')
 @ApiBearerAuth('admin')
 @UseGuards(AdminAuthGuard)
+@RequirePermission('catalog')
 @Controller('admin/products')
 export class AdminProductsController {
   constructor(
@@ -124,6 +126,7 @@ export class AdminProductsController {
       shortDescription: body.short_description,
       published: body.published,
       weightGrams: body.weight_grams,
+      taxExempt: body.tax_exempt,
       categoryId: body.category_id,
       brandId: body.brand_id,
       images: body.images,
@@ -154,6 +157,7 @@ export class AdminProductsController {
       shortDescription: body.short_description,
       published: body.published,
       weightGrams: body.weight_grams,
+      taxExempt: body.tax_exempt,
       categoryId: body.category_id,
       brandId: body.brand_id,
       images: body.images,
@@ -204,7 +208,10 @@ export class AdminProductsController {
       'Omit options (or send []) when the product has no option axes. on_hand is stored on the default warehouse.',
   })
   @ApiParam({ name: 'id', example: 1 })
-  @ApiCreatedResponse({ type: ProductDetailResponse, description: 'The product with the new variant.' })
+  @ApiCreatedResponse({
+    type: ProductDetailResponse,
+    description: 'The product with the new variant.',
+  })
   @ApiErrorResponses(
     HttpStatus.BAD_REQUEST,
     HttpStatus.UNAUTHORIZED,
@@ -236,7 +243,10 @@ export class AdminProductsController {
   })
   @ApiParam({ name: 'id', example: 1 })
   @ApiParam({ name: 'variantId', example: 11 })
-  @ApiOkResponse({ type: ProductDetailResponse, description: 'The product with the updated variant.' })
+  @ApiOkResponse({
+    type: ProductDetailResponse,
+    description: 'The product with the updated variant.',
+  })
   @ApiErrorResponses(
     HttpStatus.BAD_REQUEST,
     HttpStatus.UNAUTHORIZED,

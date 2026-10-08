@@ -1,6 +1,6 @@
 import { AddressSnapshot } from '../../domain/entities/order.aggregate'
 import { OrderProductSnapshot } from '../../domain/entities/order-item.entity'
-import { OrderStatus, PaymentMethod } from '../../domain/enums/order.enums'
+import { OrderStatus, PaymentMethod, ReturnRequestStatus } from '../../domain/enums/order.enums'
 
 export type { AddressSnapshot, OrderProductSnapshot }
 
@@ -10,6 +10,10 @@ export interface OrderItemView {
   quantity: number
   unitPrice: number
   lineTotal: number
+  /** Share of the order discount. */
+  discountAmount: number
+  /** VAT on this line (after discount); 0 for exempt goods. */
+  taxAmount: number
   product: OrderProductSnapshot
 }
 
@@ -21,6 +25,75 @@ export interface OrderPaymentView {
   gatewayRef: string | null
 }
 
+/** A shipping method as offered at checkout, with its fee for this basket. */
+export interface OrderPromotionView {
+  id: number
+  name: string
+  code: string | null
+  kind: string
+  value: number
+}
+
+export interface ShippingOptionView {
+  id: number
+  name: string
+  code: string
+  description: string | null
+  fee: number
+  minDays: number | null
+  maxDays: number | null
+}
+
+export interface OrderShippingView {
+  /** Null when the store had no shipping methods configured at checkout. */
+  method: {
+    id: number
+    name: string
+    code: string
+    minDays: number | null
+    maxDays: number | null
+  } | null
+  fee: number
+  weightGrams: number
+  trackingCode: string | null
+  trackingUrl: string | null
+}
+
+export interface OrderStatusEventView {
+  from: OrderStatus | null
+  to: OrderStatus
+  note: string | null
+  at: Date
+}
+
+export interface ReturnRequestLineView {
+  orderItemId: number
+  quantity: number
+  title: string
+  sku: string
+}
+
+export interface ReturnRequestView {
+  id: number
+  status: ReturnRequestStatus
+  reason: string
+  adminNote: string | null
+  items: ReturnRequestLineView[]
+  createdAt: Date
+  decidedAt: Date | null
+}
+
+/** A refund paid back by bank transfer. */
+export interface RefundView {
+  id: number
+  amount: number
+  reference: string
+  paidAt: Date
+  restocked: boolean
+  returnRequestId: number | null
+  note: string | null
+}
+
 export interface OrderView {
   id: number
   number: string
@@ -29,13 +102,36 @@ export interface OrderView {
   paymentMethod: PaymentMethod
   itemCount: number
   subtotal: number
+  shippingFee: number
+  /** Goods and shipping discount. */
+  discountTotal: number
+  /** The promotion used, if any. */
+  promotion: OrderPromotionView | null
+  /** VAT rate at checkout in basis points (1000 = 10%). */
+  taxRateBp: number
+  taxTotal: number
+  /** subtotal + shippingFee - discountTotal + taxTotal; what the customer pays. */
+  total: number
+  /** Sum of refunds paid back so far. */
+  refundedTotal: number
+  shipping: OrderShippingView
   note: string | null
   address: AddressSnapshot
   items: OrderItemView[]
   payment: OrderPaymentView | null
   canCancel: boolean
+  /** Oldest first. */
+  statusHistory: OrderStatusEventView[]
+  /** Oldest first. */
+  returns: ReturnRequestView[]
+  /** Oldest first. */
+  refunds: RefundView[]
+  /** Last moment a return may be requested; null unless delivered. */
+  returnableUntil: Date | null
   cancelledAt: Date | null
   paidAt: Date | null
+  processingAt: Date | null
+  shippedAt: Date | null
   completedAt: Date | null
   createdAt: Date
 }
@@ -51,6 +147,10 @@ export interface CreateOrderCommand {
   userId: number
   addressId: number
   paymentMethod?: PaymentMethod
+  /** Omitted = the cheapest method that delivers to the address. */
+  shippingMethodId?: number | null
+  /** Coupon typed by the customer. */
+  couponCode?: string | null
   note?: string | null
 }
 
@@ -59,6 +159,8 @@ export interface CheckoutPreviewItemView {
   quantity: number
   unitPrice: number
   lineTotal: number
+  discountAmount: number
+  taxAmount: number
   product: OrderProductSnapshot
 }
 
@@ -67,7 +169,19 @@ export interface CheckoutPreviewView {
   items: CheckoutPreviewItemView[]
   itemCount: number
   subtotal: number
+  weightGrams: number
+  /** Methods that deliver to the address, cheapest first. Empty when the store has none. */
+  shippingMethods: ShippingOptionView[]
+  /** The method the order will use; null when the store has none. */
+  shippingMethodId: number | null
   shippingFee: number
+  discountTotal: number
+  promotion: OrderPromotionView | null
+  /** True when the coupon was valid but an automatic campaign saved more. */
+  couponOutranked: boolean
+  /** Basis points; 1000 = 10%. */
+  taxRateBp: number
+  taxTotal: number
   total: number
   paymentMethod: PaymentMethod
   note: string | null
@@ -110,4 +224,53 @@ export interface ListOrdersQuery {
   createdTo?: Date
   limit?: number
   offset?: number
+}
+
+/** Admin view of a shipping method. Money in Rial. */
+export interface ShippingMethodView {
+  id: number
+  name: string
+  code: string
+  description: string | null
+  baseFee: number
+  perKgFee: number
+  freeAbove: number | null
+  minDays: number | null
+  maxDays: number | null
+  provinceIds: number[] | null
+  trackingUrlTemplate: string | null
+  isActive: boolean
+  position: number
+}
+
+/** A return request in the admin queue. */
+export interface AdminReturnRequestView extends ReturnRequestView {
+  orderId: number
+  orderNumber: string
+  userId: number
+}
+
+export interface PaginatedReturnRequestsView {
+  items: AdminReturnRequestView[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface RequestReturnCommand {
+  orderId: number
+  userId: number
+  items: { orderItemId: number; quantity: number }[]
+  reason: string
+}
+
+export interface RecordRefundCommand {
+  orderId: number
+  adminId: number
+  amount: number
+  reference: string
+  paidAt?: Date
+  note?: string | null
+  returnRequestId?: number | null
+  restock?: boolean
 }

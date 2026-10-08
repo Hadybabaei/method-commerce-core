@@ -1,4 +1,7 @@
-import { AddressNotFoundError, AddressNotOwnedError } from '@modules/addressing/domain/errors/addressing.errors'
+import {
+  AddressNotFoundError,
+  AddressNotOwnedError,
+} from '@modules/addressing/domain/errors/addressing.errors'
 import {
   BasketNotReadyError,
   EmptyBasketError,
@@ -95,35 +98,35 @@ describe('Commerce scenarios', () => {
       const h = createCommerceHarness()
       const addressId = h.seedUserAddress(userId)
 
-      await expect(
-        h.createOrder.execute({ userId, addressId })
-      ).rejects.toBeInstanceOf(EmptyBasketError)
+      await expect(h.createOrder.execute({ userId, addressId })).rejects.toBeInstanceOf(
+        EmptyBasketError
+      )
     })
 
     it('rejects a basket with stock issues', async () => {
       const { h, addressId } = readyCheckout(10, 2)
       h.baskets.setIssues(userId, variantId, ['INSUFFICIENT_STOCK'])
 
-      await expect(
-        h.createOrder.execute({ userId, addressId })
-      ).rejects.toBeInstanceOf(BasketNotReadyError)
+      await expect(h.createOrder.execute({ userId, addressId })).rejects.toBeInstanceOf(
+        BasketNotReadyError
+      )
     })
 
     it('rejects a missing address', async () => {
       const { h } = readyCheckout()
 
-      await expect(
-        h.createOrder.execute({ userId, addressId: 999 })
-      ).rejects.toBeInstanceOf(AddressNotFoundError)
+      await expect(h.createOrder.execute({ userId, addressId: 999 })).rejects.toBeInstanceOf(
+        AddressNotFoundError
+      )
     })
 
     it('rejects an address owned by someone else', async () => {
       const { h } = readyCheckout()
       h.seedUserAddress(otherUserId, 99)
 
-      await expect(
-        h.createOrder.execute({ userId, addressId: 99 })
-      ).rejects.toBeInstanceOf(AddressNotOwnedError)
+      await expect(h.createOrder.execute({ userId, addressId: 99 })).rejects.toBeInstanceOf(
+        AddressNotOwnedError
+      )
     })
 
     it('rejects a note that is too long', async () => {
@@ -163,9 +166,9 @@ describe('Commerce scenarios', () => {
     it('rejects when requested quantity exceeds available stock', async () => {
       const { h, addressId } = readyCheckout(2, 5)
 
-      await expect(
-        h.createOrder.execute({ userId, addressId })
-      ).rejects.toBeInstanceOf(InsufficientStockForOrderError)
+      await expect(h.createOrder.execute({ userId, addressId })).rejects.toBeInstanceOf(
+        InsufficientStockForOrderError
+      )
 
       expect(h.inventory.snapshot(variantId)[0].reserved).toBe(0)
     })
@@ -244,9 +247,9 @@ describe('Commerce scenarios', () => {
       expect(cancelled.status).toBe(OrderStatus.Cancelled)
       expect(h.inventory.available(variantId)).toBe(5)
 
-      await expect(
-        h.cancelOrder.execute({ orderId: order.id, userId })
-      ).rejects.toBeInstanceOf(OrderNotCancellableError)
+      await expect(h.cancelOrder.execute({ orderId: order.id, userId })).rejects.toBeInstanceOf(
+        OrderNotCancellableError
+      )
     })
 
     it('rejects cancel for another customer order', async () => {
@@ -346,9 +349,7 @@ describe('Commerce scenarios', () => {
 
       expect(first.order.status).toBe(OrderStatus.Paid)
       expect(first.payment.status).toBe(PaymentStatus.Succeeded)
-      expect(h.orders.byId.get(order.id)?.reservationStatus).toBe(
-        OrderReservationStatus.Consumed
-      )
+      expect(h.orders.byId.get(order.id)?.reservationStatus).toBe(OrderReservationStatus.Consumed)
       expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 3, reserved: 0 })
 
       const replay = await h.handleCallback.execute({
@@ -537,9 +538,7 @@ describe('Commerce scenarios', () => {
       expect(result.order.status).toBe(OrderStatus.Paid)
       expect(result.order.cancelledAt).toBeNull()
       expect(result.payment.status).toBe(PaymentStatus.Succeeded)
-      expect(h.orders.byId.get(order.id)?.reservationStatus).toBe(
-        OrderReservationStatus.Consumed
-      )
+      expect(h.orders.byId.get(order.id)?.reservationStatus).toBe(OrderReservationStatus.Consumed)
       expect(h.inventory.snapshot(variantId)[0]).toMatchObject({ onHand: 3, reserved: 0 })
     })
 
@@ -854,9 +853,9 @@ describe('Commerce scenarios', () => {
         raw: h.successCallbackRaw(payment.gatewayRef!),
       })
 
-      await expect(
-        h.cancelOrder.execute({ orderId: order.id, userId })
-      ).rejects.toBeInstanceOf(OrderNotCancellableError)
+      await expect(h.cancelOrder.execute({ orderId: order.id, userId })).rejects.toBeInstanceOf(
+        OrderNotCancellableError
+      )
     })
   })
 

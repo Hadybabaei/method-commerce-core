@@ -1,7 +1,11 @@
 import { Order } from './order.aggregate'
 import { OrderItem } from './order-item.entity'
 import { OrderReservationStatus, OrderStatus, PaymentMethod } from '../enums/order.enums'
-import { OrderNotCancellableError, OrderNotCompletableError, OrderNotPayableError } from '../errors/ordering.errors'
+import {
+  OrderNotCancellableError,
+  OrderNotCompletableError,
+  OrderNotPayableError,
+} from '../errors/ordering.errors'
 import { Money } from '@shared/domain/value-objects/money'
 import { StockAllocationPlan } from '../value-objects/stock-allocation.vo'
 
@@ -105,7 +109,9 @@ describe('Order', () => {
     const pending = buildOrder()
     pending.markReserved(StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }]))
     expect(() =>
-      pending.reviveForPayment(StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }]))
+      pending.reviveForPayment(
+        StockAllocationPlan.of([{ variantId: 11, locationId: 1, quantity: 2 }])
+      )
     ).toThrow(OrderNotPayableError)
 
     const cod = buildOrder()
@@ -127,8 +133,16 @@ describe('Order', () => {
       addressSnapshot: address,
       note: null,
       stockAllocations: StockAllocationPlan.empty(),
+      shipping: { method: null, fee: Money.zero, weightGrams: 0 },
+      taxRateBp: 0,
+      refundedTotal: Money.zero,
+      discount: { total: Money.zero, promotion: null },
+      trackingCode: null,
+      trackingUrl: null,
       cancelledAt: null,
       paidAt: new Date(),
+      processingAt: null,
+      shippedAt: null,
       completedAt: null,
       createdAt: new Date(),
     })

@@ -7,9 +7,10 @@ import { ProductDetailView } from '../dto/views'
 import { PRODUCT_READ_MODEL, ProductReadModel } from '../ports/product-read.port'
 
 @Injectable()
-export class DeleteProductVariantUseCase
-  implements UseCase<DeleteProductVariantCommand, ProductDetailView>
-{
+export class DeleteProductVariantUseCase implements UseCase<
+  DeleteProductVariantCommand,
+  ProductDetailView
+> {
   constructor(
     @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository,
     @Inject(PRODUCT_READ_MODEL) private readonly productReads: ProductReadModel

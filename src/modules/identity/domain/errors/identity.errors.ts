@@ -55,6 +55,12 @@ export class InvalidCredentialsError extends UnauthenticatedError {
   }
 }
 
+export class AccountBlockedError extends ForbiddenError {
+  constructor() {
+    super('This account has been blocked. Contact support.')
+  }
+}
+
 export class AccountDisabledError extends ForbiddenError {
   constructor() {
     super('This account is disabled')

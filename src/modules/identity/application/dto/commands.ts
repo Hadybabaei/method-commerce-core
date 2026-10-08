@@ -55,6 +55,7 @@ export interface CreateAdminCommand {
   email: string
   password: string
   role: AdminRole
+  permissions?: string[]
   firstName?: string | null
   lastName?: string | null
   nationalId?: string | null

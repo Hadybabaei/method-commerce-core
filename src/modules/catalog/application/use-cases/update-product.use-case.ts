@@ -67,6 +67,7 @@ export class UpdateProductUseCase implements UseCase<UpdateProductCommand, Produ
       changes.shortDescription = command.shortDescription
     }
     if (command.weightGrams !== undefined) changes.weightGrams = command.weightGrams
+    if (command.taxExempt !== undefined) changes.taxExempt = command.taxExempt
 
     if (command.slug !== undefined) {
       const slug = Slug.create(command.slug)

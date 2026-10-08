@@ -1,6 +1,4 @@
-import {
-  PAYMENT_INQUIRY_LOCK_DURATION_MS,
-} from '../../domain/payment-inquiry'
+import { PAYMENT_INQUIRY_LOCK_DURATION_MS } from '../../domain/payment-inquiry'
 
 export const PAYMENT_INQUIRY_QUEUE = 'payment-inquiry'
 export const INQUIRE_OPEN_PAYMENTS_JOB = 'inquire-open-payments'
