@@ -34,6 +34,7 @@ import { UpdateBrandUseCase } from './application/use-cases/update-brand.use-cas
 import { UpdateCategoryUseCase } from './application/use-cases/update-category.use-case'
 import { UpdateProductUseCase } from './application/use-cases/update-product.use-case'
 import { UpdateProductVariantUseCase } from './application/use-cases/update-product-variant.use-case'
+import { UploadCatalogImageUseCase } from './application/use-cases/upload-catalog-image.use-case'
 import { INVENTORY_STOCK_WRITER } from './application/ports/inventory-stock.port'
 import { PRODUCT_READ_MODEL } from './application/ports/product-read.port'
 import { SELLABLE_VARIANT_LOOKUP } from './application/ports/sellable-variant.port'
@@ -49,9 +50,11 @@ import { PrismaSellableVariantLookup } from './infrastructure/persistence/prisma
 import { AdminBrandsController } from './presentation/controllers/admin-brands.controller'
 import { AdminCategoriesController } from './presentation/controllers/admin-categories.controller'
 import { AdminProductsController } from './presentation/controllers/admin-products.controller'
+import { AdminUploadsController } from './presentation/controllers/admin-uploads.controller'
 import { BrandsController } from './presentation/controllers/brands.controller'
 import { CategoriesController } from './presentation/controllers/categories.controller'
 import { ProductsController } from './presentation/controllers/products.controller'
+import { CatalogImageInterceptor } from './presentation/interceptors/catalog-image.interceptor'
 
 const useCases = [
   ResolveSlugRedirectUseCase,
@@ -76,6 +79,7 @@ const useCases = [
   ListProductsUseCase,
   GetProductBySlugUseCase,
   GetProductByIdUseCase,
+  UploadCatalogImageUseCase,
 ]
 
 /**
@@ -92,6 +96,7 @@ const useCases = [
     AdminCategoriesController,
     AdminBrandsController,
     AdminProductsController,
+    AdminUploadsController,
   ],
   providers: [
     { provide: CATEGORY_REPOSITORY, useClass: PrismaCategoryRepository },
@@ -103,6 +108,7 @@ const useCases = [
     { provide: CATALOG_SEO_READ_MODEL, useClass: PrismaCatalogSeoReadModel },
     { provide: SELLABLE_VARIANT_LOOKUP, useClass: PrismaSellableVariantLookup },
     { provide: INVENTORY_STOCK_WRITER, useClass: PrismaInventoryStockWriter },
+    CatalogImageInterceptor,
     ...useCases,
   ],
   // Other contexts (favorites, basket, later cart) need to look a product or
