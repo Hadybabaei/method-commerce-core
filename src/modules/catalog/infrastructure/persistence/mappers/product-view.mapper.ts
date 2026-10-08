@@ -86,6 +86,8 @@ export function toProductDetailView(record: DetailRecord): ProductDetailView {
     priceTo: activePrices.length > 0 ? Math.max(...activePrices) : null,
     createdAt: record.created_at,
     description: record.description,
+    seoTitle: record.seo_title,
+    seoDescription: record.seo_description,
     shortDescription: record.short_description,
     weightGrams: record.weightGrams,
     taxExempt: record.tax_exempt,

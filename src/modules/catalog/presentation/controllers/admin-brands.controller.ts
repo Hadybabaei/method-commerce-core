@@ -64,6 +64,8 @@ export class AdminBrandsController {
       slug: body.slug,
       logo: body.logo,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
     })
   }
 
@@ -87,6 +89,8 @@ export class AdminBrandsController {
       slug: body.slug,
       logo: body.logo,
       description: body.description,
+      seoTitle: body.seo_title,
+      seoDescription: body.seo_description,
     })
   }
 

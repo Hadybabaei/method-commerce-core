@@ -1,3 +1,4 @@
+import { SeoMeta } from '../../../domain/value-objects/seo-meta.vo'
 import { Prisma } from '@prisma/client'
 import { Money } from '@shared/domain/value-objects/money'
 import { Product } from '../../../domain/entities/product.aggregate'
@@ -31,6 +32,7 @@ export function toDomainProduct(record: ProductRecord): Product {
     subTitle: record.sub_title,
     slug: Slug.fromPersistence(record.slug),
     description: record.description,
+    seo: SeoMeta.fromPersistence(record.seo_title, record.seo_description),
     shortDescription: record.short_description,
     published: record.publish,
     weightGrams: record.weightGrams,
@@ -78,6 +80,8 @@ export function toProductWriteData(product: Product) {
     slug: product.slug.value,
     description: product.description,
     short_description: product.shortDescription,
+    seo_title: product.seo.title,
+    seo_description: product.seo.description,
     publish: product.published,
     weightGrams: product.weightGrams,
     tax_exempt: product.taxExempt,

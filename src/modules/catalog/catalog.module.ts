@@ -1,3 +1,10 @@
+import { CATALOG_SEO_READ_MODEL } from './application/ports/catalog-seo-read.port'
+import {
+  GetSitemapUseCase,
+  ResolveSlugRedirectUseCase,
+} from './application/use-cases/catalog-seo.use-cases'
+import { PrismaCatalogSeoReadModel } from './infrastructure/persistence/prisma-catalog-seo.read-model'
+import { CatalogSeoController } from './presentation/controllers/catalog-seo.controller'
 import { Module } from '@nestjs/common'
 import { IdentityModule } from '@modules/identity/identity.module'
 import { AddProductVariantUseCase } from './application/use-cases/add-product-variant.use-case'
@@ -44,6 +51,8 @@ import { CategoriesController } from './presentation/controllers/categories.cont
 import { ProductsController } from './presentation/controllers/products.controller'
 
 const useCases = [
+  ResolveSlugRedirectUseCase,
+  GetSitemapUseCase,
   CreateCategoryUseCase,
   UpdateCategoryUseCase,
   DeleteCategoryUseCase,
@@ -73,6 +82,7 @@ const useCases = [
 @Module({
   imports: [IdentityModule],
   controllers: [
+    CatalogSeoController,
     CategoriesController,
     BrandsController,
     ProductsController,
@@ -85,6 +95,7 @@ const useCases = [
     { provide: BRAND_REPOSITORY, useClass: PrismaBrandRepository },
     { provide: PRODUCT_REPOSITORY, useClass: PrismaProductRepository },
     { provide: PRODUCT_READ_MODEL, useClass: PrismaProductReadModel },
+    { provide: CATALOG_SEO_READ_MODEL, useClass: PrismaCatalogSeoReadModel },
     { provide: SELLABLE_VARIANT_LOOKUP, useClass: PrismaSellableVariantLookup },
     { provide: INVENTORY_STOCK_WRITER, useClass: PrismaInventoryStockWriter },
     ...useCases,

@@ -8,6 +8,9 @@ export const uploadConfig = registerAs('upload', () => ({
   publicPath: process.env.UPLOAD_PUBLIC_PATH ?? '/uploads',
   maxImageBytes: toInt(process.env.UPLOAD_MAX_IMAGE_BYTES, 5 * 1024 * 1024),
   maxImagesPerComment: toInt(process.env.UPLOAD_MAX_IMAGES_PER_COMMENT, 5),
+  /** Longest side, in pixels, after optimisation. Larger images are scaled down. */
+  maxImageDimension: toInt(process.env.UPLOAD_MAX_IMAGE_DIMENSION, 1600),
+  webpQuality: toInt(process.env.UPLOAD_WEBP_QUALITY, 82),
   allowedImageMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const,
 }))
 

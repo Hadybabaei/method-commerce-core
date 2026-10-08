@@ -8,6 +8,7 @@ import {
   UnknownOptionValueError,
 } from '../errors/catalog.errors'
 import { Sku } from '../value-objects/sku.vo'
+import { SeoMeta } from '../value-objects/seo-meta.vo'
 import { Slug } from '../value-objects/slug.vo'
 import { VariantSelection } from '../value-objects/variant-selection.vo'
 import { Product } from './product.aggregate'
@@ -295,6 +296,7 @@ describe('Product publishing', () => {
       weightGrams: 1500,
       categoryId: null,
       brandId: null,
+      seo: SeoMeta.empty,
       images: [],
       options: [],
       variants: [],
@@ -315,5 +317,17 @@ describe('Product publishing', () => {
     product.publish()
 
     expect(product.pullDomainEvents()).toHaveLength(0)
+  })
+})
+
+describe('Product SEO', () => {
+  it('starts without overrides and merges partial changes', () => {
+    const product = newProduct()
+    expect(product.seo.unpack()).toEqual({ title: null, description: null })
+
+    product.apply({ seo: { title: 'خرید دریل شارژی', description: 'ارسال سریع' } })
+    product.apply({ seo: { description: null } })
+
+    expect(product.seo.unpack()).toEqual({ title: 'خرید دریل شارژی', description: null })
   })
 })

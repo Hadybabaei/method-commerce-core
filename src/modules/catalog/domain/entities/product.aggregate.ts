@@ -19,6 +19,7 @@ import { Slug } from '../value-objects/slug.vo'
 import { VariantSelection } from '../value-objects/variant-selection.vo'
 import { ProductOption } from './product-option.entity'
 import { ProductVariant, ProductVariantProps } from './product-variant.entity'
+import { SeoMeta, SeoMetaChanges } from '../value-objects/seo-meta.vo'
 
 export interface ProductProps {
   title: string
@@ -33,6 +34,7 @@ export interface ProductProps {
   taxExempt: boolean
   categoryId: number | null
   brandId: number | null
+  seo: SeoMeta
   images: ProductImage[]
   options: ProductOption[]
   variants: ProductVariant[]
@@ -48,6 +50,7 @@ export interface ProductChanges {
   taxExempt?: boolean
   categoryId?: number | null
   brandId?: number | null
+  seo?: SeoMetaChanges
 }
 
 export interface PriceRange {
@@ -55,8 +58,11 @@ export interface PriceRange {
   max: Money
 }
 
-export type NewProductProps = Omit<ProductProps, 'images' | 'options' | 'variants' | 'taxExempt'> &
-  Partial<Pick<ProductProps, 'images' | 'options' | 'variants' | 'taxExempt'>>
+export type NewProductProps = Omit<
+  ProductProps,
+  'images' | 'options' | 'variants' | 'taxExempt' | 'seo'
+> &
+  Partial<Pick<ProductProps, 'images' | 'options' | 'variants' | 'taxExempt' | 'seo'>>
 
 /**
  * A catalog entry, and the consistency boundary for everything that describes
@@ -81,6 +87,7 @@ export class Product extends AggregateRoot {
     return new Product(UNSAVED_ID, {
       ...props,
       taxExempt: props.taxExempt ?? false,
+      seo: props.seo ?? SeoMeta.empty,
       images: props.images ?? [],
       options: props.options ?? [],
       variants: props.variants ?? [],
@@ -111,6 +118,7 @@ export class Product extends AggregateRoot {
     if (changes.categoryId !== undefined) this.props.categoryId = changes.categoryId
     if (changes.brandId !== undefined) this.props.brandId = changes.brandId
     if (changes.taxExempt !== undefined) this.props.taxExempt = changes.taxExempt
+    if (changes.seo !== undefined) this.props.seo = this.props.seo.merge(changes.seo)
   }
 
   publish(): void {
@@ -319,6 +327,11 @@ export class Product extends AggregateRoot {
 
   get description(): string | null {
     return this.props.description
+  }
+
+  /** Search-engine overrides; nulls fall back to the title and description. */
+  get seo(): SeoMeta {
+    return this.props.seo
   }
 
   get shortDescription(): string | null {

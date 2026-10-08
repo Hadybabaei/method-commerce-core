@@ -1,6 +1,7 @@
 import { CategoryCycleError, CategoryTooDeepError } from '../errors/catalog.errors'
 import { CategoryPath, MAX_CATEGORY_DEPTH } from '../value-objects/category-path.vo'
 import { Slug } from '../value-objects/slug.vo'
+import { SeoMeta } from '../value-objects/seo-meta.vo'
 import { Category } from './category.aggregate'
 
 function saved(id: number, path: string, parentId: number | null = null): Category {
@@ -12,6 +13,7 @@ function saved(id: number, path: string, parentId: number | null = null): Catego
     parentId,
     path: CategoryPath.fromPersistence(path),
     position: 0,
+    seo: SeoMeta.empty,
   })
 }
 
@@ -22,6 +24,7 @@ function newChildOf(parent: Category | null): Category {
     icon: null,
     description: null,
     position: 0,
+    seo: SeoMeta.empty,
     parent,
   })
 }
