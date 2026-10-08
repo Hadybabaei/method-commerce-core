@@ -18,10 +18,7 @@ import {
   ORDER_REPOSITORY,
   OrderRepository,
 } from '../../domain/repositories/order.repository'
-import {
-  PAYMENT_REPOSITORY,
-  PaymentRepository,
-} from '../../domain/repositories/payment.repository'
+import { PAYMENT_REPOSITORY, PaymentRepository } from '../../domain/repositories/payment.repository'
 import { inquiryGatewayRefs } from '../../domain/payment-inquiry'
 import { HandlePaymentCallbackCommand, OrderView } from '../dto/views'
 import {
@@ -109,10 +106,7 @@ export class HandlePaymentCallbackUseCase implements UseCase<
     if (!verified.ok) {
       // A Failed retry may have issued a newer trackId. A stale fail callback
       // for the old tab must not burn the live session.
-      if (
-        payment.status === PaymentStatus.Initiated &&
-        payment.gatewayRef !== parsed.gatewayRef
-      ) {
+      if (payment.status === PaymentStatus.Initiated && payment.gatewayRef !== parsed.gatewayRef) {
         return this.view('failed', payment)
       }
       return this.recordFailure(payment, verified.failureReason ?? 'Gateway verification failed')
@@ -135,10 +129,7 @@ export class HandlePaymentCallbackUseCase implements UseCase<
       return this.settle(payment)
     }
 
-    if (
-      payment.status !== PaymentStatus.Initiated &&
-      payment.status !== PaymentStatus.Failed
-    ) {
+    if (payment.status !== PaymentStatus.Initiated && payment.status !== PaymentStatus.Failed) {
       return null
     }
 
@@ -207,7 +198,10 @@ export class HandlePaymentCallbackUseCase implements UseCase<
       }
     }
 
-    return this.view(outcome.state === 'refund-required' ? 'refund-required' : 'paid', outcome.payment)
+    return this.view(
+      outcome.state === 'refund-required' ? 'refund-required' : 'paid',
+      outcome.payment
+    )
   }
 
   private async fulfill(payment: Payment): Promise<FulfillOutcome> {
@@ -291,7 +285,10 @@ export class HandlePaymentCallbackUseCase implements UseCase<
     })
   }
 
-  private async view(state: PaymentCallbackState, payment: Payment): Promise<PaymentCallbackResult> {
+  private async view(
+    state: PaymentCallbackState,
+    payment: Payment
+  ): Promise<PaymentCallbackResult> {
     return {
       state,
       payment: toPaymentView(payment),

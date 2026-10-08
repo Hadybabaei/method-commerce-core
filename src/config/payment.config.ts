@@ -20,8 +20,7 @@ export const paymentConfig = registerAs('payment', () => {
     zibal: {
       merchant,
       apiBaseUrl: (process.env.ZIBAL_API_BASE_URL ?? 'https://gateway.zibal.ir').replace(/\/$/, ''),
-      callbackUrl:
-        process.env.ZIBAL_CALLBACK_URL ?? `${serverUrl}/${apiPrefix}/payments/callback`,
+      callbackUrl: process.env.ZIBAL_CALLBACK_URL ?? `${serverUrl}/${apiPrefix}/payments/callback`,
     },
   }
 })

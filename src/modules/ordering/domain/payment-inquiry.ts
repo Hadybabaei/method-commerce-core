@@ -47,10 +47,7 @@ export function isPaymentInquiryCandidate(
     return order.status === OrderStatus.Pending || order.status === OrderStatus.Cancelled
   }
 
-  if (
-    payment.status !== PaymentStatus.Initiated &&
-    payment.status !== PaymentStatus.Failed
-  ) {
+  if (payment.status !== PaymentStatus.Initiated && payment.status !== PaymentStatus.Failed) {
     return false
   }
 

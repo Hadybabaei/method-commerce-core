@@ -24,16 +24,12 @@ export class BullmqOrderPaymentTimeoutScheduler implements OrderPaymentTimeoutSc
     // Replace any prior delay for the same order (e.g. recreate edge cases).
     await this.queue.remove(jobId).catch(() => undefined)
 
-    await this.queue.add(
-      CANCEL_UNPAID_ORDER_JOB,
-      { orderId } satisfies CancelUnpaidOrderJobData,
-      {
-        jobId,
-        delay: delayMs,
-        removeOnComplete: true,
-        removeOnFail: 100,
-      }
-    )
+    await this.queue.add(CANCEL_UNPAID_ORDER_JOB, { orderId } satisfies CancelUnpaidOrderJobData, {
+      jobId,
+      delay: delayMs,
+      removeOnComplete: true,
+      removeOnFail: 100,
+    })
 
     this.logger.log(`Scheduled unpaid cancel for order ${orderId} in ${delayMs}ms`)
   }

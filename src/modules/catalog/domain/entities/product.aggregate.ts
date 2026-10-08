@@ -217,7 +217,9 @@ export class Product extends AggregateRoot {
   changeVariantSku(variantId: number, sku: Sku): void {
     const variant = this.requireVariant(variantId)
 
-    if (this.props.variants.some((other) => other.sku.value === sku.value && other.id !== variantId)) {
+    if (
+      this.props.variants.some((other) => other.sku.value === sku.value && other.id !== variantId)
+    ) {
       throw new SkuAlreadyTakenError(sku.value)
     }
 

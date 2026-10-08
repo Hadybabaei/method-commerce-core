@@ -1,9 +1,6 @@
 import { UNSAVED_ID } from '@shared/domain/identifier'
 import { PaymentStatus } from '../enums/order.enums'
-import {
-  IdempotencyConflictError,
-  OrderNotPayableError,
-} from '../errors/ordering.errors'
+import { IdempotencyConflictError, OrderNotPayableError } from '../errors/ordering.errors'
 
 /** Marks a captured payment whose order could not be fulfilled. */
 export const REFUND_REQUIRED_PREFIX = 'REFUND_REQUIRED: '

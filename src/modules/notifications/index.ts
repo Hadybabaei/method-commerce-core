@@ -1,4 +1,8 @@
-export { NotificationAudience, NotificationContext, NotificationTypes } from './domain/enums/notification.enums'
+export {
+  NotificationAudience,
+  NotificationContext,
+  NotificationTypes,
+} from './domain/enums/notification.enums'
 export {
   NOTIFICATIONS,
   Notifications,

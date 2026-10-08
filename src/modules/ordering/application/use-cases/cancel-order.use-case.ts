@@ -9,10 +9,7 @@ import {
   ORDER_REPOSITORY,
   OrderRepository,
 } from '../../domain/repositories/order.repository'
-import {
-  PAYMENT_REPOSITORY,
-  PaymentRepository,
-} from '../../domain/repositories/payment.repository'
+import { PAYMENT_REPOSITORY, PaymentRepository } from '../../domain/repositories/payment.repository'
 import { CancelOrderCommand, OrderView } from '../dto/views'
 import {
   ORDER_PAYMENT_TIMEOUT_SCHEDULER,
