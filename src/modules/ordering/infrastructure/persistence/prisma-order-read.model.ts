@@ -96,6 +96,7 @@ function toView(record: OrderRecord): OrderView {
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     lineTotal: item.lineTotal,
+    taxAmount: item.taxAmount,
     product: item.productSnapshot as unknown as OrderProductSnapshot,
   }))
 
@@ -112,7 +113,10 @@ function toView(record: OrderRecord): OrderView {
     itemCount: record.itemCount,
     subtotal: record.subtotal,
     shippingFee: record.shippingFee,
+    taxRateBp: record.taxRateBp,
+    taxTotal: record.taxTotal,
     total: record.total,
+    refundedTotal: record.refundedTotal,
     shipping: {
       method: shippingMethod
         ? {

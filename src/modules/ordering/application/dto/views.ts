@@ -10,6 +10,8 @@ export interface OrderItemView {
   quantity: number
   unitPrice: number
   lineTotal: number
+  /** VAT on this line; 0 for exempt goods. */
+  taxAmount: number
   product: OrderProductSnapshot
 }
 
@@ -63,8 +65,13 @@ export interface OrderView {
   itemCount: number
   subtotal: number
   shippingFee: number
-  /** subtotal + shippingFee; what the customer pays. */
+  /** VAT rate at checkout in basis points (1000 = 10%). */
+  taxRateBp: number
+  taxTotal: number
+  /** subtotal + shippingFee + taxTotal; what the customer pays. */
   total: number
+  /** Sum of refunds paid back so far. */
+  refundedTotal: number
   shipping: OrderShippingView
   note: string | null
   address: AddressSnapshot
@@ -102,6 +109,7 @@ export interface CheckoutPreviewItemView {
   quantity: number
   unitPrice: number
   lineTotal: number
+  taxAmount: number
   product: OrderProductSnapshot
 }
 
@@ -116,6 +124,9 @@ export interface CheckoutPreviewView {
   /** The method the order will use; null when the store has none. */
   shippingMethodId: number | null
   shippingFee: number
+  /** Basis points; 1000 = 10%. */
+  taxRateBp: number
+  taxTotal: number
   total: number
   paymentMethod: PaymentMethod
   note: string | null

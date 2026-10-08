@@ -14,6 +14,11 @@ import {
   SellableVariantLookup,
 } from '@modules/catalog/application/ports/sellable-variant.port'
 import { Money } from '@shared/domain/value-objects/money'
+import {
+  STORE_SETTINGS,
+  StoreSettingsRepository,
+} from '@modules/store/application/store-settings.port'
+import { vatOn } from '@modules/store/domain/store-settings'
 import { OrderShipping } from '../../domain/entities/order.aggregate'
 import { OrderItem } from '../../domain/entities/order-item.entity'
 import { ShippingMethod } from '../../domain/entities/shipping-method.entity'
@@ -32,6 +37,8 @@ export interface CheckoutLines {
   items: OrderItem[]
   /** Total parcel weight across all units. */
   weightGrams: number
+  /** VAT rate applied to the lines, in basis points. */
+  taxRateBp: number
 }
 
 export interface ShippingQuote {
@@ -55,7 +62,8 @@ export class CheckoutAssembler {
     @Inject(ADDRESS_REPOSITORY) private readonly addresses: AddressRepository,
     @Inject(ADDRESS_READ_MODEL) private readonly addressReads: AddressReadModel,
     @Inject(SELLABLE_VARIANT_LOOKUP) private readonly variants: SellableVariantLookup,
-    @Inject(SHIPPING_METHOD_REPOSITORY) private readonly shippingMethods: ShippingMethodRepository
+    @Inject(SHIPPING_METHOD_REPOSITORY) private readonly shippingMethods: ShippingMethodRepository,
+    @Inject(STORE_SETTINGS) private readonly settings: StoreSettingsRepository
   ) {}
 
   async requireOwnedAddress(userId: number, addressId: number): Promise<AddressView> {
@@ -77,6 +85,7 @@ export class CheckoutAssembler {
   ): Promise<CheckoutLines> {
     const items: OrderItem[] = []
     let weightGrams = 0
+    const { vatRateBp: taxRateBp } = await this.settings.get()
 
     for (const line of lines) {
       const sellable = await this.variants.findById(line.variantId)
@@ -92,11 +101,13 @@ export class CheckoutAssembler {
       }
 
       weightGrams += sellable.weightGrams * line.quantity
+      const lineTotal = sellable.unitPrice * line.quantity
       items.push(
         OrderItem.create({
           variantId: line.variantId,
           quantity: line.quantity,
           unitPrice: Money.fromMinor(sellable.unitPrice),
+          taxAmount: Money.fromMinor(sellable.taxExempt ? 0 : vatOn(lineTotal, taxRateBp)),
           snapshot: {
             productId: sellable.productId,
             variantId: sellable.variantId,
@@ -111,7 +122,7 @@ export class CheckoutAssembler {
       )
     }
 
-    return { items, weightGrams }
+    return { items, weightGrams, taxRateBp }
   }
 
   /**

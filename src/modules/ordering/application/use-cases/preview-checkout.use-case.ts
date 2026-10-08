@@ -35,7 +35,7 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
     }
 
     const address = await this.assembler.requireOwnedAddress(command.userId, command.addressId)
-    const { items, weightGrams } = await this.assembler.buildItems(basketView.items)
+    const { items, weightGrams, taxRateBp } = await this.assembler.buildItems(basketView.items)
     const note = Order.normalizeNote(command.note)
     const paymentMethod = command.paymentMethod ?? PaymentMethod.CashOnDelivery
     const subtotal = items.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
@@ -46,6 +46,7 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
       shippingMethodId: command.shippingMethodId,
     })
     const shippingFee = shipping.selected?.fee.amount ?? 0
+    const taxTotal = items.reduce((sum, item) => sum + item.taxAmount.amount, 0)
 
     return {
       address,
@@ -54,6 +55,7 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
         quantity: item.quantity,
         unitPrice: item.unitPrice.amount,
         lineTotal: item.lineTotal.amount,
+        taxAmount: item.taxAmount.amount,
         product: item.productSnapshot,
       })),
       itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
@@ -70,7 +72,9 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
       })),
       shippingMethodId: shipping.selected?.method.id ?? null,
       shippingFee,
-      total: subtotal.amount + shippingFee,
+      taxRateBp,
+      taxTotal,
+      total: subtotal.amount + shippingFee + taxTotal,
       paymentMethod,
       note,
     }

@@ -125,7 +125,11 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
             throw new EmptyBasketError()
           }
 
-          const { items: orderItems, weightGrams } = await this.assembler.buildItems(
+          const {
+            items: orderItems,
+            weightGrams,
+            taxRateBp,
+          } = await this.assembler.buildItems(
             basket.getItems().map((item) => ({
               variantId: item.variantId,
               quantity: item.quantityValue,
@@ -150,6 +154,7 @@ export class CreateOrderUseCase implements UseCase<CreateOrderCommand, OrderView
             items: orderItems,
             addressSnapshot: addressView,
             shipping: CheckoutAssembler.toOrderShipping(shipping.selected, weightGrams),
+            taxRateBp,
             note: command.note,
           })
 

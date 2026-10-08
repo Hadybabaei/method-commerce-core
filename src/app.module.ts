@@ -14,6 +14,7 @@ import { CommentsModule } from '@modules/comments/comments.module'
 import { FavoritesModule } from '@modules/favorites/favorites.module'
 import { OrderingModule } from '@modules/ordering/ordering.module'
 import { NotificationsModule } from '@modules/notifications/notifications.module'
+import { StoreModule } from '@modules/store/store.module'
 import {
   isOrderingJobsEnabled,
   assertProductionOrderingJobs,
@@ -78,6 +79,7 @@ assertProductionOrderingJobs()
     BasketModule,
     OrderingModule,
     NotificationsModule,
+    StoreModule,
     ...optionalModules,
   ],
   controllers: [HealthController],

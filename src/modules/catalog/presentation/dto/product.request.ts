@@ -77,6 +77,11 @@ export class CreateProductRequest {
   @Min(1)
   weight_grams?: number
 
+  @ApiPropertyOptional({ default: false, description: 'Exempt goods carry no VAT.' })
+  @IsOptional()
+  @IsBoolean()
+  tax_exempt?: boolean
+
   @ApiPropertyOptional({ example: 4 })
   @IsOptional()
   @Type(() => Number)

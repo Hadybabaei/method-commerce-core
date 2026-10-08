@@ -16,6 +16,8 @@ export interface SellableVariantSnapshot {
   compareAtPrice: number | null
   /** Shipping weight of one unit: the variant's own, else the product's. */
   weightGrams: number
+  /** Exempt goods carry no VAT. */
+  taxExempt: boolean
   /** sum(max(0, on_hand − reserved)) across locations. */
   availableQuantity: number
   options: { option: string; value: string }[]

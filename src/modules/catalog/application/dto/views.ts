@@ -66,6 +66,7 @@ export interface ProductDetailView extends ProductSummaryView {
   description: string | null
   shortDescription: string | null
   weightGrams: number
+  taxExempt: boolean
   images: ProductImageView[]
   options: ProductOptionView[]
   variants: ProductVariantView[]

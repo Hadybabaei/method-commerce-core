@@ -182,6 +182,8 @@ model product {
   short_description String? @db.Text
   publish           Boolean @default(true)
   weightGrams       Int     @default(500)
+  /// Exempt goods carry no VAT (e.g. some basic foods and medicine).
+  tax_exempt        Boolean @default(false)
 
   categoryId Int?
   category   category? @relation(fields: [categoryId], references: [id])
@@ -425,10 +427,18 @@ model order {
   weightGrams      Int              @default(0)
   trackingCode     String?          @db.VarChar(100)
   trackingUrl      String?          @db.Text
+  /// VAT rate at checkout in basis points (1000 = 10%).
+  taxRateBp        Int              @default(0)
+  /// Sum of line VAT in Rial. total = subtotal + shippingFee + taxTotal.
+  taxTotal         Int              @default(0)
+  /// Sum of recorded refunds in Rial; never above total.
+  refundedTotal    Int              @default(0)
 
-  items         order_item[]
-  payments      payment[]
-  statusHistory order_status_event[]
+  items          order_item[]
+  payments       payment[]
+  statusHistory  order_status_event[]
+  returnRequests return_request[]
+  refunds        refund[]
 
   cancelledAt  DateTime?
   paidAt       DateTime?
@@ -458,6 +468,10 @@ model order_item {
 
   /// Immutable product/variant display payload from checkout.
   productSnapshot Json
+  /// VAT on this line in Rial; 0 for exempt goods.
+  taxAmount       Int  @default(0)
+
+  returnItems return_request_item[]
 
   @@index([orderId])
   @@index([variantId])
@@ -642,4 +656,91 @@ model order_status_event {
   created_at DateTime @default(now())
 
   @@index([orderId, created_at])
+}
+
+// ---------------------------------------------------------------------------
+// Store settings, returns and refunds
+// ---------------------------------------------------------------------------
+
+/// One row (id = 1) of store-wide settings: VAT and the seller details printed on invoices.
+model store_setting {
+  id Int @id @default(1)
+
+  /// Basis points: 1000 = 10%.
+  vat_rate_bp        Int     @default(1000)
+  /// Days after delivery during which customers may ask to return items.
+  return_window_days Int     @default(7)
+  legal_name         String?
+  economic_code      String? @db.VarChar(20)
+  national_id        String? @db.VarChar(20)
+  registration_no    String? @db.VarChar(20)
+  address            String? @db.Text
+  postal_code        String? @db.VarChar(10)
+  phone              String? @db.VarChar(20)
+
+  updated_at DateTime @updatedAt
+}
+
+enum ReturnRequestStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+/// A customer's request to send back some lines of a delivered order.
+model return_request {
+  id      Int   @id @default(autoincrement())
+  orderId Int
+  order   order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId  Int
+
+  status    ReturnRequestStatus @default(REQUESTED)
+  reason    String              @db.Text
+  adminNote String?             @db.Text
+  decidedAt DateTime?
+
+  items   return_request_item[]
+  refunds refund[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([status, created_at])
+  @@index([orderId])
+}
+
+model return_request_item {
+  id              Int            @id @default(autoincrement())
+  returnRequestId Int
+  returnRequest   return_request @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderItemId     Int
+  orderItem       order_item     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  quantity        Int
+
+  @@unique([returnRequestId, orderItemId])
+  @@index([orderItemId])
+}
+
+/// Money paid back to a customer by bank transfer outside the system.
+model refund {
+  id              Int             @id @default(autoincrement())
+  orderId         Int
+  order           order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  returnRequestId Int?
+  returnRequest   return_request? @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+
+  /// Rial.
+  amount    Int
+  /// Whether the returned lines went back into stock.
+  restocked Boolean  @default(false)
+  /// Bank transfer reference (shomare peygiri).
+  reference String   @db.VarChar(100)
+  note      String?  @db.Text
+  paidAt    DateTime
+  adminId   Int?
+
+  created_at DateTime @default(now())
+
+  @@index([orderId])
 }

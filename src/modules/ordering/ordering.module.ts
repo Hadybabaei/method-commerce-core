@@ -4,9 +4,11 @@ import { BasketModule } from '@modules/basket/basket.module'
 import { CatalogModule } from '@modules/catalog/catalog.module'
 import { IdentityModule } from '@modules/identity/identity.module'
 import { NotificationsModule } from '@modules/notifications/notifications.module'
+import { StoreModule } from '@modules/store/store.module'
 import { ORDER_PAYMENT_TIMEOUT_SCHEDULER } from './application/ports/order-payment-timeout.port'
 import { ORDER_READ_MODEL } from './application/ports/order-read.port'
 import { PAYMENT_GATEWAY } from './application/ports/payment-gateway.port'
+import { GetInvoiceUseCase } from './application/use-cases/get-invoice.use-case'
 import { CancelOrderUseCase } from './application/use-cases/cancel-order.use-case'
 import { CompleteOrderUseCase } from './application/use-cases/complete-order.use-case'
 import { ConfirmCodPaymentUseCase } from './application/use-cases/confirm-cod-payment.use-case'
@@ -61,6 +63,7 @@ const useCases = [
   DeleteShippingMethodUseCase,
   GetOrderUseCase,
   ListOrdersUseCase,
+  GetInvoiceUseCase,
   InitiatePaymentUseCase,
   HandlePaymentCallbackUseCase,
   InquireOpenPaymentsUseCase,
@@ -72,7 +75,14 @@ const useCases = [
  * token stays here and delegates to BullMQ when that module is present.
  */
 @Module({
-  imports: [IdentityModule, BasketModule, CatalogModule, AddressingModule, NotificationsModule],
+  imports: [
+    IdentityModule,
+    BasketModule,
+    CatalogModule,
+    AddressingModule,
+    NotificationsModule,
+    StoreModule,
+  ],
   controllers: [
     OrdersController,
     AdminOrdersController,

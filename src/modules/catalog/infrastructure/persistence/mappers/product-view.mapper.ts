@@ -88,6 +88,7 @@ export function toProductDetailView(record: DetailRecord): ProductDetailView {
     description: record.description,
     shortDescription: record.short_description,
     weightGrams: record.weightGrams,
+    taxExempt: record.tax_exempt,
     images: record.images.map((image) => ({
       url: image.url,
       thumbnail: image.thumbnail,

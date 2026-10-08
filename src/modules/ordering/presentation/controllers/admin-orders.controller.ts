@@ -1,3 +1,5 @@
+import { GetInvoiceUseCase } from '../../application/use-cases/get-invoice.use-case'
+import { InvoiceResponse } from '../dto/invoice.response'
 import {
   Body,
   Controller,
@@ -31,6 +33,7 @@ import { OrderResponse } from '../dto/order.response'
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(
+    private readonly getInvoiceUseCase: GetInvoiceUseCase,
     private readonly cancelOrderUseCase: CancelOrderUseCase,
     private readonly confirmCodPaymentUseCase: ConfirmCodPaymentUseCase,
     private readonly completeOrderUseCase: CompleteOrderUseCase,
@@ -66,6 +69,23 @@ export class AdminOrdersController {
   @ApiErrorResponses(HttpStatus.BAD_REQUEST, HttpStatus.UNAUTHORIZED, HttpStatus.NOT_FOUND)
   get(@Param('id', ParseIntPipe) orderId: number) {
     return this.getOrderUseCase.execute({ orderId })
+  }
+
+  @Get(':id/invoice')
+  @ApiOperation({
+    summary: 'Sales invoice for a paid order',
+    description: 'Seller and buyer details, lines with VAT and totals in Rial. 422 before payment.',
+  })
+  @ApiParam({ name: 'id', example: 9 })
+  @ApiOkResponse({ type: InvoiceResponse })
+  @ApiErrorResponses(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.UNPROCESSABLE_ENTITY
+  )
+  invoice(@Param('id', ParseIntPipe) orderId: number) {
+    return this.getInvoiceUseCase.execute({ orderId })
   }
 
   @Post(':id/cancel')

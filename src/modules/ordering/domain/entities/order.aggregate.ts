@@ -63,6 +63,10 @@ export interface OrderProps {
   note: string | null
   stockAllocations: StockAllocationPlan
   shipping: OrderShipping
+  /** VAT rate at checkout in basis points; line tax amounts are already computed with it. */
+  taxRateBp: number
+  /** Sum of refunds recorded so far. */
+  refundedTotal: Money
   trackingCode: string | null
   trackingUrl: string | null
   cancelledAt: Date | null
@@ -80,6 +84,7 @@ export interface CreateOrderInput {
   items: OrderItem[]
   addressSnapshot: AddressSnapshot
   shipping?: OrderShipping
+  taxRateBp?: number
   note?: string | null
 }
 
@@ -117,6 +122,8 @@ export class Order extends AggregateRoot {
       note,
       stockAllocations: StockAllocationPlan.empty(),
       shipping: input.shipping ?? NO_SHIPPING,
+      taxRateBp: input.taxRateBp ?? 0,
+      refundedTotal: Money.zero,
       trackingCode: null,
       trackingUrl: null,
       cancelledAt: null,
@@ -424,9 +431,22 @@ export class Order extends AggregateRoot {
     return this.props.items.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
   }
 
-  /** What the customer pays: subtotal plus shipping. */
+  get taxRateBp(): number {
+    return this.props.taxRateBp
+  }
+
+  /** VAT across all lines. */
+  get taxTotal(): Money {
+    return this.props.items.reduce((sum, item) => sum.add(item.taxAmount), Money.zero)
+  }
+
+  /** What the customer pays: subtotal, shipping and VAT. */
   get total(): Money {
-    return this.subtotal.add(this.props.shipping.fee)
+    return this.subtotal.add(this.props.shipping.fee).add(this.taxTotal)
+  }
+
+  get refundedTotal(): Money {
+    return this.props.refundedTotal
   }
 
   get canCancel(): boolean {

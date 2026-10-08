@@ -95,6 +95,9 @@ export class OrderItemResponse implements OrderItemView {
   @ApiProperty({ example: 4_800_000 })
   lineTotal: number
 
+  @ApiProperty({ example: 480_000, description: 'VAT on this line in Rial; 0 for exempt goods.' })
+  taxAmount: number
+
   @ApiProperty({ type: OrderProductSnapshotResponse })
   product: OrderProductSnapshotResponse
 }
@@ -199,6 +202,15 @@ export class OrderResponse implements OrderView {
   })
   total: number
 
+  @ApiProperty({ example: 1000, description: 'VAT rate at checkout in basis points (1000 = 10%).' })
+  taxRateBp: number
+
+  @ApiProperty({ example: 480_000, description: 'VAT in Rial.' })
+  taxTotal: number
+
+  @ApiProperty({ example: 0, description: 'Refunds paid back so far, in Rial.' })
+  refundedTotal: number
+
   @ApiProperty({ type: OrderShippingResponse })
   shipping: OrderShippingResponse
 
@@ -257,6 +269,9 @@ export class CheckoutPreviewItemResponse {
   @ApiProperty({ example: 4_800_000 })
   lineTotal: number
 
+  @ApiProperty({ example: 480_000, description: 'VAT on this line in Rial; 0 for exempt goods.' })
+  taxAmount: number
+
   @ApiProperty({ type: OrderProductSnapshotResponse })
   product: OrderProductSnapshotResponse
 }
@@ -296,6 +311,12 @@ export class CheckoutPreviewResponse {
     description: 'Fee of the selected method in Rial; 0 when none.',
   })
   shippingFee: number
+
+  @ApiProperty({ example: 1000, description: 'Basis points; 1000 = 10%.' })
+  taxRateBp: number
+
+  @ApiProperty({ example: 480_000, description: 'VAT in Rial; exempt products add nothing.' })
+  taxTotal: number
 
   @ApiProperty({ example: 4_800_000, description: 'subtotal + shippingFee, in Rial.' })
   total: number

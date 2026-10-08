@@ -63,10 +63,13 @@ import { OrderPaymentTimeoutScheduler } from '../ports/order-payment-timeout.por
 import { UserRepository } from '@modules/identity/domain/repositories/user.repository'
 import { User } from '@modules/identity/domain/entities/user.aggregate'
 import { PhoneNumber } from '@modules/identity/domain/value-objects/phone-number.vo'
+import { StoreSettingsRepository } from '@modules/store/application/store-settings.port'
+import { StoreSettings } from '@modules/store/domain/store-settings'
 import { OrderStatusChange } from '../../domain/entities/order.aggregate'
 import { ShippingMethod } from '../../domain/entities/shipping-method.entity'
 import { ShippingMethodRepository } from '../../domain/repositories/shipping-method.repository'
 import { OrderSms, OrderSmsDispatcher } from '../ports/order-sms.port'
+import { GetInvoiceUseCase } from '../use-cases/get-invoice.use-case'
 import { ProcessOrderUseCase } from '../use-cases/process-order.use-case'
 import { ShipOrderUseCase } from '../use-cases/ship-order.use-case'
 import { CreateShippingMethodUseCase } from '../use-cases/shipping-methods.use-cases'
@@ -356,6 +359,7 @@ export class InMemoryOrderRepository implements OrderRepository {
           quantity: item.quantity,
           unitPrice: item.unitPrice.amount,
           lineTotal: item.lineTotal.amount,
+          taxAmount: item.taxAmount.amount,
           productSnapshot: item.productSnapshot,
         })
       ),
@@ -363,6 +367,8 @@ export class InMemoryOrderRepository implements OrderRepository {
       note: order.note,
       stockAllocations: order.stockAllocations,
       shipping: order.shipping,
+      taxRateBp: order.taxRateBp,
+      refundedTotal: order.refundedTotal,
       trackingCode: order.trackingCode,
       trackingUrl: order.trackingUrl,
       cancelledAt: order.cancelledAt,
@@ -519,6 +525,9 @@ class InMemoryOrderReads implements OrderReadModel {
       itemCount: order.itemCount,
       subtotal: order.subtotal.amount,
       shippingFee: order.shipping.fee.amount,
+      taxRateBp: order.taxRateBp,
+      taxTotal: order.taxTotal.amount,
+      refundedTotal: order.refundedTotal.amount,
       total: order.total.amount,
       shipping: {
         method: order.shipping.method
@@ -543,6 +552,7 @@ class InMemoryOrderReads implements OrderReadModel {
         quantity: item.quantity,
         unitPrice: item.unitPrice.amount,
         lineTotal: item.lineTotal.amount,
+        taxAmount: item.taxAmount.amount,
         product: item.productSnapshot,
       })),
       payment: payment
@@ -873,6 +883,7 @@ export function defaultVariant(
     unitPrice: 1_000_000,
     compareAtPrice: null,
     weightGrams: 500,
+    taxExempt: false,
     availableQuantity: 10,
     options: [{ option: 'رنگ', value: 'قرمز' }],
     image: null,
@@ -886,6 +897,32 @@ export class RecordingNotifications implements Notifications {
 
   async sendNotification(command: SendNotificationCommand): Promise<void> {
     this.sent.push(command)
+  }
+}
+
+/** VAT defaults to 0% so totals in older scenarios stay subtotal + shipping. */
+export class InMemoryStoreSettings implements StoreSettingsRepository {
+  current: StoreSettings = {
+    vatRateBp: 0,
+    returnWindowDays: 7,
+    seller: {
+      legalName: 'شرکت متد',
+      economicCode: '411111111111',
+      nationalId: null,
+      registrationNo: null,
+      address: 'تهران',
+      postalCode: '1234567890',
+      phone: null,
+    },
+  }
+
+  async get(): Promise<StoreSettings> {
+    return structuredClone(this.current)
+  }
+
+  async save(settings: StoreSettings): Promise<StoreSettings> {
+    this.current = structuredClone(settings)
+    return this.get()
   }
 }
 
@@ -961,6 +998,8 @@ export interface CommerceHarness {
   processOrder: ProcessOrderUseCase
   shipOrder: ShipOrderUseCase
   shippingMethods: InMemoryShippingMethods
+  storeSettings: InMemoryStoreSettings
+  getInvoice: GetInvoiceUseCase
   createShippingMethod: CreateShippingMethodUseCase
   sms: RecordingOrderSms
   getOrder: GetOrderUseCase
@@ -1050,12 +1089,14 @@ export function createCommerceHarness(): CommerceHarness {
   const users = new InMemoryUsers()
   const sms = new RecordingOrderSms()
   const shippingMethods = new InMemoryShippingMethods()
+  const storeSettings = new InMemoryStoreSettings()
   const orderNotifications = new OrderNotificationService(notifications, users, sms)
   const assembler = new CheckoutAssembler(
     addresses,
     asAddressReads(addresses),
     variantLookup,
-    shippingMethods
+    shippingMethods,
+    storeSettings
   )
   const cancelOrder = new CancelOrderUseCase(
     orders,
@@ -1114,6 +1155,8 @@ export function createCommerceHarness(): CommerceHarness {
     processOrder: new ProcessOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
     shipOrder: new ShipOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
     shippingMethods,
+    storeSettings,
+    getInvoice: new GetInvoiceUseCase(orderReads, storeSettings, users),
     createShippingMethod: new CreateShippingMethodUseCase(shippingMethods),
     sms,
     getOrder: new GetOrderUseCase(orderReads),
