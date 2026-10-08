@@ -19,6 +19,15 @@ export enum PaymentMethod {
   Online = 'ONLINE',
 }
 
+export enum ReturnRequestStatus {
+  Requested = 'REQUESTED',
+  Approved = 'APPROVED',
+  Rejected = 'REJECTED',
+  Refunded = 'REFUNDED',
+}
+
+export const RETURN_REQUEST_STATUSES = Object.values(ReturnRequestStatus)
+
 export enum PaymentStatus {
   Initiated = 'INITIATED',
   Succeeded = 'SUCCEEDED',

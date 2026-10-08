@@ -1,3 +1,6 @@
+import { RecordRefundUseCase } from '../../application/use-cases/returns.use-cases'
+import { RecordRefundRequest } from '../dto/returns.dto'
+import { CurrentActor } from '@shared/presentation/decorators/current-actor.decorator'
 import { GetInvoiceUseCase } from '../../application/use-cases/get-invoice.use-case'
 import { InvoiceResponse } from '../dto/invoice.response'
 import {
@@ -12,7 +15,14 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger'
 import { AdminAuthGuard } from '@modules/identity/presentation/guards/admin-auth.guard'
 import { ApiErrorResponses, ApiPaginatedResponse } from '@shared/presentation/swagger'
 import { CancelOrderUseCase } from '../../application/use-cases/cancel-order.use-case'
@@ -33,6 +43,7 @@ import { OrderResponse } from '../dto/order.response'
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(
+    private readonly recordRefundUseCase: RecordRefundUseCase,
     private readonly getInvoiceUseCase: GetInvoiceUseCase,
     private readonly cancelOrderUseCase: CancelOrderUseCase,
     private readonly confirmCodPaymentUseCase: ConfirmCodPaymentUseCase,
@@ -86,6 +97,38 @@ export class AdminOrdersController {
   )
   invoice(@Param('id', ParseIntPipe) orderId: number) {
     return this.getInvoiceUseCase.execute({ orderId })
+  }
+
+  @Post(':id/refunds')
+  @ApiOperation({
+    summary: 'Record a refund paid by bank transfer',
+    description:
+      'Pay the customer outside the system first, then record the amount and transfer reference. Refunds cannot add up to more than the order total. With return_request_id the approved return becomes REFUNDED; restock puts its units back on hand.',
+  })
+  @ApiParam({ name: 'id', example: 9 })
+  @ApiCreatedResponse({ type: OrderResponse, description: 'The order with the refund.' })
+  @ApiErrorResponses(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+    HttpStatus.UNPROCESSABLE_ENTITY
+  )
+  recordRefund(
+    @CurrentActor('id') adminId: number,
+    @Param('id', ParseIntPipe) orderId: number,
+    @Body() body: RecordRefundRequest
+  ) {
+    return this.recordRefundUseCase.execute({
+      orderId,
+      adminId,
+      amount: body.amount,
+      reference: body.reference,
+      paidAt: body.paid_at,
+      note: body.note,
+      returnRequestId: body.return_request_id,
+      restock: body.restock,
+    })
   }
 
   @Post(':id/cancel')

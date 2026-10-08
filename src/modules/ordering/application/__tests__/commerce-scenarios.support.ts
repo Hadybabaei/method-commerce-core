@@ -70,6 +70,18 @@ import { ShippingMethod } from '../../domain/entities/shipping-method.entity'
 import { ShippingMethodRepository } from '../../domain/repositories/shipping-method.repository'
 import { OrderSms, OrderSmsDispatcher } from '../ports/order-sms.port'
 import { GetInvoiceUseCase } from '../use-cases/get-invoice.use-case'
+import {
+  DecideReturnUseCase,
+  ListReturnRequestsUseCase,
+  RecordRefundUseCase,
+  RequestReturnUseCase,
+} from '../use-cases/returns.use-cases'
+import { ReturnRequest } from '../../domain/entities/return-request.aggregate'
+import { Refund } from '../../domain/entities/refund.entity'
+import { ReturnRequestStatus } from '../../domain/enums/order.enums'
+import { ReturnRequestRepository } from '../../domain/repositories/return-request.repository'
+import { RefundRepository } from '../../domain/repositories/refund.repository'
+import { PaginatedReturnRequestsView, ReturnRequestView } from '../dto/views'
 import { ProcessOrderUseCase } from '../use-cases/process-order.use-case'
 import { ShipOrderUseCase } from '../use-cases/ship-order.use-case'
 import { CreateShippingMethodUseCase } from '../use-cases/shipping-methods.use-cases'
@@ -250,6 +262,23 @@ export class InMemoryInventory implements InventoryReservationService {
     }
   }
 
+  async restock(
+    lines: ReadonlyArray<{ variantId: number; quantity: number }>,
+    plan: StockAllocationPlan
+  ): Promise<void> {
+    for (const line of lines) {
+      const locationId =
+        plan.allocations.find((row) => row.variantId === line.variantId)?.locationId ?? 1
+      const key = `${line.variantId}:${locationId}`
+      const level = this.levels.get(key)
+      if (level) {
+        level.onHand += line.quantity
+      } else {
+        this.seed(line.variantId, locationId, line.quantity)
+      }
+    }
+  }
+
   private lockFor(variantId: number): AsyncMutex {
     let mutex = this.locks.get(variantId)
     if (!mutex) {
@@ -257,6 +286,63 @@ export class InMemoryInventory implements InventoryReservationService {
       this.locks.set(variantId, mutex)
     }
     return mutex
+  }
+}
+
+export class InMemoryReturnRequests implements ReturnRequestRepository {
+  private nextId = 1
+  readonly byId = new Map<number, ReturnRequest>()
+
+  async findById(id: number): Promise<ReturnRequest | null> {
+    const found = this.byId.get(id)
+    return found ? this.copy(found.id, found) : null
+  }
+
+  async listByOrder(orderId: number): Promise<ReturnRequest[]> {
+    return [...this.byId.values()]
+      .filter((request) => request.orderId === orderId)
+      .map((request) => this.copy(request.id, request))
+  }
+
+  async save(request: ReturnRequest): Promise<ReturnRequest> {
+    const id = request.id || this.nextId++
+    const saved = this.copy(id, request)
+    this.byId.set(id, saved)
+    return this.copy(id, saved)
+  }
+
+  private copy(id: number, request: ReturnRequest): ReturnRequest {
+    return ReturnRequest.fromPersistence(id, {
+      orderId: request.orderId,
+      userId: request.userId,
+      status: request.status,
+      reason: request.reason,
+      adminNote: request.adminNote,
+      items: request.items.map((line) => ({ ...line })),
+      decidedAt: request.decidedAt,
+      createdAt: request.createdAt,
+    })
+  }
+}
+
+export class InMemoryRefunds implements RefundRepository {
+  private nextId = 1
+  readonly all: Refund[] = []
+
+  async create(refund: Refund): Promise<Refund> {
+    const saved = Refund.fromPersistence(this.nextId++, {
+      orderId: refund.orderId,
+      returnRequestId: refund.returnRequestId,
+      amount: refund.amount,
+      restocked: refund.restocked,
+      reference: refund.reference,
+      note: refund.note,
+      paidAt: refund.paidAt,
+      adminId: refund.adminId,
+      createdAt: refund.createdAt,
+    })
+    this.all.push(saved)
+    return saved
   }
 }
 
@@ -508,8 +594,51 @@ export class InMemoryPaymentRepository implements PaymentRepository {
 class InMemoryOrderReads implements OrderReadModel {
   constructor(
     private readonly orders: InMemoryOrderRepository,
-    private readonly payments: InMemoryPaymentRepository
+    private readonly payments: InMemoryPaymentRepository,
+    private readonly returns: InMemoryReturnRequests,
+    private readonly refunds: InMemoryRefunds,
+    private readonly settings: InMemoryStoreSettings
   ) {}
+
+  private returnView(order: Order, request: ReturnRequest): ReturnRequestView {
+    return {
+      id: request.id,
+      status: request.status,
+      reason: request.reason,
+      adminNote: request.adminNote,
+      items: request.items.map((line) => {
+        const item = order.items.find((orderItem) => orderItem.id === line.orderItemId)
+        return {
+          orderItemId: line.orderItemId,
+          quantity: line.quantity,
+          title: item?.productSnapshot.title ?? '',
+          sku: item?.productSnapshot.sku ?? '',
+        }
+      }),
+      createdAt: request.createdAt,
+      decidedAt: request.decidedAt,
+    }
+  }
+
+  async listReturnRequests(query: {
+    status?: ReturnRequestStatus
+    limit: number
+    offset: number
+  }): Promise<PaginatedReturnRequestsView> {
+    const matching = [...this.returns.byId.values()].filter(
+      (request) => !query.status || request.status === query.status
+    )
+    const items = matching.slice(query.offset, query.offset + query.limit).map((request) => {
+      const order = this.orders.byId.get(request.orderId)!
+      return {
+        ...this.returnView(order, request),
+        orderId: order.id,
+        orderNumber: order.number,
+        userId: request.userId,
+      }
+    })
+    return { items, total: matching.length, limit: query.limit, offset: query.offset }
+  }
 
   async findById(id: number): Promise<OrderView | null> {
     const order = await this.orders.findById(id)
@@ -565,6 +694,24 @@ class InMemoryOrderReads implements OrderReadModel {
           }
         : null,
       canCancel: order.status === OrderStatus.Pending && !captured,
+      returns: [...this.returns.byId.values()]
+        .filter((request) => request.orderId === order.id)
+        .map((request) => this.returnView(order, request)),
+      refunds: this.refunds.all
+        .filter((refund) => refund.orderId === order.id)
+        .map((refund) => ({
+          id: refund.id,
+          amount: refund.amount.amount,
+          reference: refund.reference,
+          paidAt: refund.paidAt,
+          restocked: refund.restocked,
+          returnRequestId: refund.returnRequestId,
+          note: refund.note,
+        })),
+      returnableUntil:
+        order.status === OrderStatus.Completed && order.completedAt
+          ? ReturnRequest.windowEnd(order.completedAt, this.settings.current.returnWindowDays)
+          : null,
       statusHistory: (this.orders.history.get(order.id) ?? []).map((change) => ({
         from: change.from,
         to: change.to,
@@ -1000,6 +1147,12 @@ export interface CommerceHarness {
   shippingMethods: InMemoryShippingMethods
   storeSettings: InMemoryStoreSettings
   getInvoice: GetInvoiceUseCase
+  returnRequests: InMemoryReturnRequests
+  refunds: InMemoryRefunds
+  requestReturn: RequestReturnUseCase
+  listReturns: ListReturnRequestsUseCase
+  decideReturn: DecideReturnUseCase
+  recordRefund: RecordRefundUseCase
   createShippingMethod: CreateShippingMethodUseCase
   sms: RecordingOrderSms
   getOrder: GetOrderUseCase
@@ -1080,7 +1233,16 @@ export function createCommerceHarness(): CommerceHarness {
   const addresses = new InMemoryAddresses()
   const orders = new InMemoryOrderRepository()
   const payments = new InMemoryPaymentRepository()
-  const orderReads = new InMemoryOrderReads(orders, payments)
+  const returnRequests = new InMemoryReturnRequests()
+  const refunds = new InMemoryRefunds()
+  const storeSettings = new InMemoryStoreSettings()
+  const orderReads = new InMemoryOrderReads(
+    orders,
+    payments,
+    returnRequests,
+    refunds,
+    storeSettings
+  )
   const prisma = fakePrisma()
   const gateway = new FakePaymentGateway()
   const paymentTimeouts = new InMemoryOrderPaymentTimeoutScheduler(() => clock.now().getTime())
@@ -1089,7 +1251,6 @@ export function createCommerceHarness(): CommerceHarness {
   const users = new InMemoryUsers()
   const sms = new RecordingOrderSms()
   const shippingMethods = new InMemoryShippingMethods()
-  const storeSettings = new InMemoryStoreSettings()
   const orderNotifications = new OrderNotificationService(notifications, users, sms)
   const assembler = new CheckoutAssembler(
     addresses,
@@ -1157,6 +1318,36 @@ export function createCommerceHarness(): CommerceHarness {
     shippingMethods,
     storeSettings,
     getInvoice: new GetInvoiceUseCase(orderReads, storeSettings, users),
+    returnRequests,
+    refunds,
+    requestReturn: new RequestReturnUseCase(
+      orders,
+      orderReads,
+      returnRequests,
+      storeSettings,
+      clock,
+      orderNotifications,
+      prisma
+    ),
+    listReturns: new ListReturnRequestsUseCase(orderReads),
+    decideReturn: new DecideReturnUseCase(
+      orders,
+      orderReads,
+      returnRequests,
+      clock,
+      orderNotifications,
+      prisma
+    ),
+    recordRefund: new RecordRefundUseCase(
+      orders,
+      orderReads,
+      returnRequests,
+      refunds,
+      inventory,
+      clock,
+      orderNotifications,
+      prisma
+    ),
     createShippingMethod: new CreateShippingMethodUseCase(shippingMethods),
     sms,
     getOrder: new GetOrderUseCase(orderReads),

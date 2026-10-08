@@ -38,6 +38,16 @@ export interface InventoryReservationService {
 
   /** Decrements both on_hand and reserved after a successful payment. */
   consume(plan: StockAllocationPlan, tx: unknown): Promise<void>
+
+  /**
+   * Puts returned units back on hand at the warehouses the order shipped from
+   * (first allocation of each variant).
+   */
+  restock(
+    lines: ReadonlyArray<{ variantId: number; quantity: number }>,
+    plan: StockAllocationPlan,
+    tx: unknown
+  ): Promise<void>
 }
 
 export const INVENTORY_RESERVATION = Symbol('InventoryReservationService')

@@ -100,6 +100,46 @@ export class OrderNotificationService {
     await this.text(order, orderSmsMessages.completed(order))
   }
 
+  async returnRequested(order: OrderNotice): Promise<void> {
+    await this.send(order, NotificationTypes.ordering.returnRequested, {
+      userTitle: `Return requested for ${order.number}`,
+      userBody: `We received your return request for ${order.number} and will review it soon.`,
+      adminTitle: `Return requested for ${order.number}`,
+      adminBody: `Customer ${order.userId} asked to return items from ${order.number}.`,
+    })
+  }
+
+  async returnApproved(order: OrderNotice): Promise<void> {
+    await this.send(order, NotificationTypes.ordering.returnApproved, {
+      userTitle: `Return approved for ${order.number}`,
+      userBody: `Your return for ${order.number} was approved. Please send the items back.`,
+      adminTitle: `Return approved for ${order.number}`,
+      adminBody: `The return for ${order.number} was approved and awaits a refund.`,
+    })
+    await this.text(order, orderSmsMessages.returnApproved(order))
+  }
+
+  async returnRejected(order: OrderNotice, note: string | null): Promise<void> {
+    const reason = note ? ` Reason: ${note}` : ''
+    await this.send(order, NotificationTypes.ordering.returnRejected, {
+      userTitle: `Return rejected for ${order.number}`,
+      userBody: `Your return for ${order.number} was rejected.${reason}`,
+      adminTitle: `Return rejected for ${order.number}`,
+      adminBody: `The return for ${order.number} was rejected.${reason}`,
+    })
+    await this.text(order, orderSmsMessages.returnRejected(order, note))
+  }
+
+  async refundPaid(order: OrderNotice, amount: number, reference: string): Promise<void> {
+    await this.send(order, NotificationTypes.ordering.refundPaid, {
+      userTitle: `Refund for ${order.number}`,
+      userBody: `We paid back ${amount} Rial for ${order.number}. Transfer reference: ${reference}.`,
+      adminTitle: `Refund recorded for ${order.number}`,
+      adminBody: `${amount} Rial refunded for ${order.number} (reference ${reference}).`,
+    })
+    await this.text(order, orderSmsMessages.refundPaid(order, amount, reference))
+  }
+
   private async text(order: OrderNotice, text: string): Promise<void> {
     try {
       const user = await this.users.findById(order.userId)

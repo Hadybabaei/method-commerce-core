@@ -1,6 +1,6 @@
 import { AddressSnapshot } from '../../domain/entities/order.aggregate'
 import { OrderProductSnapshot } from '../../domain/entities/order-item.entity'
-import { OrderStatus, PaymentMethod } from '../../domain/enums/order.enums'
+import { OrderStatus, PaymentMethod, ReturnRequestStatus } from '../../domain/enums/order.enums'
 
 export type { AddressSnapshot, OrderProductSnapshot }
 
@@ -56,6 +56,34 @@ export interface OrderStatusEventView {
   at: Date
 }
 
+export interface ReturnRequestLineView {
+  orderItemId: number
+  quantity: number
+  title: string
+  sku: string
+}
+
+export interface ReturnRequestView {
+  id: number
+  status: ReturnRequestStatus
+  reason: string
+  adminNote: string | null
+  items: ReturnRequestLineView[]
+  createdAt: Date
+  decidedAt: Date | null
+}
+
+/** A refund paid back by bank transfer. */
+export interface RefundView {
+  id: number
+  amount: number
+  reference: string
+  paidAt: Date
+  restocked: boolean
+  returnRequestId: number | null
+  note: string | null
+}
+
 export interface OrderView {
   id: number
   number: string
@@ -80,6 +108,12 @@ export interface OrderView {
   canCancel: boolean
   /** Oldest first. */
   statusHistory: OrderStatusEventView[]
+  /** Oldest first. */
+  returns: ReturnRequestView[]
+  /** Oldest first. */
+  refunds: RefundView[]
+  /** Last moment a return may be requested; null unless delivered. */
+  returnableUntil: Date | null
   cancelledAt: Date | null
   paidAt: Date | null
   processingAt: Date | null
@@ -186,4 +220,36 @@ export interface ShippingMethodView {
   trackingUrlTemplate: string | null
   isActive: boolean
   position: number
+}
+
+/** A return request in the admin queue. */
+export interface AdminReturnRequestView extends ReturnRequestView {
+  orderId: number
+  orderNumber: string
+  userId: number
+}
+
+export interface PaginatedReturnRequestsView {
+  items: AdminReturnRequestView[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface RequestReturnCommand {
+  orderId: number
+  userId: number
+  items: { orderItemId: number; quantity: number }[]
+  reason: string
+}
+
+export interface RecordRefundCommand {
+  orderId: number
+  adminId: number
+  amount: number
+  reference: string
+  paidAt?: Date
+  note?: string | null
+  returnRequestId?: number | null
+  restock?: boolean
 }

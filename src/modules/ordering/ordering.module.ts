@@ -1,3 +1,14 @@
+import {
+  DecideReturnUseCase,
+  ListReturnRequestsUseCase,
+  RecordRefundUseCase,
+  RequestReturnUseCase,
+} from './application/use-cases/returns.use-cases'
+import { RETURN_REQUEST_REPOSITORY } from './domain/repositories/return-request.repository'
+import { REFUND_REPOSITORY } from './domain/repositories/refund.repository'
+import { PrismaReturnRequestRepository } from './infrastructure/persistence/prisma-return-request.repository'
+import { PrismaRefundRepository } from './infrastructure/persistence/prisma-refund.repository'
+import { AdminReturnsController } from './presentation/controllers/admin-returns.controller'
 import { Module } from '@nestjs/common'
 import { AddressingModule } from '@modules/addressing/addressing.module'
 import { BasketModule } from '@modules/basket/basket.module'
@@ -64,6 +75,10 @@ const useCases = [
   GetOrderUseCase,
   ListOrdersUseCase,
   GetInvoiceUseCase,
+  RequestReturnUseCase,
+  ListReturnRequestsUseCase,
+  DecideReturnUseCase,
+  RecordRefundUseCase,
   InitiatePaymentUseCase,
   HandlePaymentCallbackUseCase,
   InquireOpenPaymentsUseCase,
@@ -87,6 +102,7 @@ const useCases = [
     OrdersController,
     AdminOrdersController,
     AdminShippingMethodsController,
+    AdminReturnsController,
     PaymentsController,
   ],
   providers: [
@@ -96,6 +112,8 @@ const useCases = [
     { provide: INVENTORY_RESERVATION, useClass: PrismaInventoryReservationService },
     { provide: PAYMENT_GATEWAY, useClass: ZibalPaymentGateway },
     { provide: SHIPPING_METHOD_REPOSITORY, useClass: PrismaShippingMethodRepository },
+    { provide: RETURN_REQUEST_REPOSITORY, useClass: PrismaReturnRequestRepository },
+    { provide: REFUND_REPOSITORY, useClass: PrismaRefundRepository },
     DirectOrderSmsDispatcher,
     { provide: ORDER_SMS_DISPATCHER, useClass: DelegatingOrderSmsDispatcher },
     { provide: ORDER_PAYMENT_TIMEOUT_SCHEDULER, useClass: DelegatingOrderPaymentTimeoutScheduler },

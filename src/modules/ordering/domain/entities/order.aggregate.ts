@@ -324,6 +324,11 @@ export class Order extends AggregateRoot {
     this.props.completedAt = now
   }
 
+  /** Raises the refunded total; Refund.record checks the amount first. */
+  recordRefund(amount: Money): void {
+    this.props.refundedTotal = this.props.refundedTotal.add(amount)
+  }
+
   /** Status changes since the last call, oldest first. The repository writes them to history. */
   pullStatusChanges(): OrderStatusChange[] {
     const changes = this.statusChanges

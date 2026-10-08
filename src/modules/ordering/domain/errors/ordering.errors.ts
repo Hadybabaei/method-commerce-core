@@ -165,3 +165,43 @@ export class ShippingMethodNotOfferedError extends BusinessRuleViolationError {
     })
   }
 }
+
+export class ReturnRequestNotFoundError extends NotFoundError {
+  constructor(identifier?: number) {
+    super(
+      'Return request not found',
+      identifier === undefined ? undefined : { returnRequest: identifier }
+    )
+  }
+}
+
+/** The order cannot be returned (not delivered, or the window has closed). */
+export class ReturnNotAllowedError extends BusinessRuleViolationError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}
+
+export class InvalidReturnRequestError extends InvalidInputError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}
+
+export class ReturnAlreadyDecidedError extends BusinessRuleViolationError {
+  constructor(status: string) {
+    super('This return request was already decided', { status })
+  }
+}
+
+export class RefundNotAllowedError extends BusinessRuleViolationError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}
+
+export class InvalidRefundError extends InvalidInputError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details)
+  }
+}

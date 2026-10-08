@@ -13,6 +13,7 @@ import {
   OrderView,
 } from '../../application/dto/views'
 import { ShippingOptionResponse } from './shipping-method.response'
+import { RefundResponse, ReturnRequestResponse } from './returns.dto'
 
 export class OrderProductSnapshotResponse {
   @ApiProperty({ example: 1 })
@@ -231,6 +232,18 @@ export class OrderResponse implements OrderView {
 
   @ApiProperty({ type: [OrderStatusEventResponse], description: 'Oldest first.' })
   statusHistory: OrderStatusEventResponse[]
+
+  @ApiProperty({ type: [ReturnRequestResponse], description: 'Oldest first.' })
+  returns: ReturnRequestResponse[]
+
+  @ApiProperty({ type: [RefundResponse], description: 'Oldest first.' })
+  refunds: RefundResponse[]
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Last moment a return may be requested; null unless delivered.',
+  })
+  returnableUntil: Date | null
 
   @ApiProperty({ nullable: true })
   cancelledAt: Date | null

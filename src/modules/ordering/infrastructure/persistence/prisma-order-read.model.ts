@@ -5,13 +5,21 @@ import { AddressSnapshot } from '../../domain/entities/order.aggregate'
 import { OrderProductSnapshot } from '../../domain/entities/order-item.entity'
 import { REFUND_REQUIRED_PREFIX } from '../../domain/entities/payment.entity'
 import { ShippingSnapshot } from '../../domain/entities/shipping-method.entity'
-import { OrderStatus, PaymentMethod, PaymentStatus } from '../../domain/enums/order.enums'
+import {
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  ReturnRequestStatus,
+} from '../../domain/enums/order.enums'
+import { ReturnRequest } from '../../domain/entities/return-request.aggregate'
 import {
   ListOrdersQuery,
   OrderItemView,
   OrderPaymentView,
   OrderView,
   PaginatedOrdersView,
+  PaginatedReturnRequestsView,
+  ReturnRequestView,
 } from '../../application/dto/views'
 import { OrderReadModel } from '../../application/ports/order-read.port'
 
@@ -20,12 +28,12 @@ export class PrismaOrderReadModel implements OrderReadModel {
   constructor(private readonly prisma: PrismaService) {}
 
   async findById(id: number): Promise<OrderView | null> {
-    const record = await this.prisma.order.findUnique({
-      where: { id },
-      include: orderInclude,
-    })
+    const [record, windowDays] = await Promise.all([
+      this.prisma.order.findUnique({ where: { id }, include: orderInclude }),
+      this.returnWindowDays(),
+    ])
 
-    return record ? toView(record) : null
+    return record ? toView(record, windowDays) : null
   }
 
   async list(
@@ -33,6 +41,7 @@ export class PrismaOrderReadModel implements OrderReadModel {
   ): Promise<PaginatedOrdersView> {
     const where = toWhere(query)
 
+    const windowDays = await this.returnWindowDays()
     const [total, records] = await this.prisma.$transaction([
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
@@ -45,11 +54,78 @@ export class PrismaOrderReadModel implements OrderReadModel {
     ])
 
     return {
-      items: records.map(toView),
+      items: records.map((record) => toView(record, windowDays)),
       total,
       limit: query.limit,
       offset: query.offset,
     }
+  }
+
+  async listReturnRequests(query: {
+    status?: ReturnRequestStatus
+    limit: number
+    offset: number
+  }): Promise<PaginatedReturnRequestsView> {
+    const where: Prisma.return_requestWhereInput = query.status ? { status: query.status } : {}
+    const [total, records] = await this.prisma.$transaction([
+      this.prisma.return_request.count({ where }),
+      this.prisma.return_request.findMany({
+        where,
+        include: { ...returnInclude, order: { select: { number: true } } },
+        orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+        take: query.limit,
+        skip: query.offset,
+      }),
+    ])
+
+    return {
+      items: records.map((record) => ({
+        ...toReturnView(record),
+        orderId: record.orderId,
+        orderNumber: record.order.number,
+        userId: record.userId,
+      })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    }
+  }
+
+  private async returnWindowDays(): Promise<number> {
+    const settings = await this.prisma.store_setting.findUnique({
+      where: { id: 1 },
+      select: { return_window_days: true },
+    })
+    return settings?.return_window_days ?? 7
+  }
+}
+
+const returnInclude = {
+  items: {
+    orderBy: { id: 'asc' },
+    include: { orderItem: { select: { productSnapshot: true } } },
+  },
+} satisfies Prisma.return_requestInclude
+
+type ReturnRecord = Prisma.return_requestGetPayload<{ include: typeof returnInclude }>
+
+function toReturnView(record: ReturnRecord): ReturnRequestView {
+  return {
+    id: record.id,
+    status: record.status as ReturnRequestStatus,
+    reason: record.reason,
+    adminNote: record.adminNote,
+    items: record.items.map((item) => {
+      const product = item.orderItem.productSnapshot as unknown as OrderProductSnapshot
+      return {
+        orderItemId: item.orderItemId,
+        quantity: item.quantity,
+        title: product.title,
+        sku: product.sku,
+      }
+    }),
+    createdAt: record.created_at,
+    decidedAt: record.decidedAt,
   }
 }
 
@@ -57,6 +133,8 @@ const orderInclude = {
   items: { orderBy: { id: 'asc' } },
   payments: { orderBy: { id: 'desc' } },
   statusHistory: { orderBy: [{ created_at: 'asc' }, { id: 'asc' }] },
+  returnRequests: { orderBy: { id: 'asc' }, include: returnInclude },
+  refunds: { orderBy: { id: 'asc' } },
 } satisfies Prisma.orderInclude
 
 type OrderRecord = Prisma.orderGetPayload<{ include: typeof orderInclude }>
@@ -89,7 +167,7 @@ function toWhere(query: ListOrdersQuery): Prisma.orderWhereInput {
   return where
 }
 
-function toView(record: OrderRecord): OrderView {
+function toView(record: OrderRecord, returnWindowDays: number): OrderView {
   const items: OrderItemView[] = record.items.map((item) => ({
     id: item.id,
     variantId: item.variantId,
@@ -143,6 +221,20 @@ function toView(record: OrderRecord): OrderView {
       note: event.note,
       at: event.created_at,
     })),
+    returns: record.returnRequests.map(toReturnView),
+    refunds: record.refunds.map((refund) => ({
+      id: refund.id,
+      amount: refund.amount,
+      reference: refund.reference,
+      paidAt: refund.paidAt,
+      restocked: refund.restocked,
+      returnRequestId: refund.returnRequestId,
+      note: refund.note,
+    })),
+    returnableUntil:
+      record.status === OrderStatus.Completed && record.completedAt
+        ? ReturnRequest.windowEnd(record.completedAt, returnWindowDays)
+        : null,
     cancelledAt: record.cancelledAt,
     paidAt: record.paidAt,
     processingAt: record.processingAt,
