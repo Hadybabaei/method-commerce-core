@@ -12,7 +12,7 @@ const DELAY_MS = 10_000
 
 describe('Unpaid ONLINE cancel (live Redis + BullMQ)', () => {
   const prefix = `{method-commerce-unpaid-test}-${process.pid}-${Date.now()}`
-  const connection = { url: REDIS_URL, maxRetriesPerRequest: null as const }
+  const connection = { url: REDIS_URL, maxRetriesPerRequest: null }
 
   let queue: Queue<CancelUnpaidOrderJobData>
   let worker: Worker<CancelUnpaidOrderJobData>

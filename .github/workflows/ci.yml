@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, types, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Jest needs Node 24.9+ to load NestJS 12's ES modules.
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma validate
+      - run: npm run lint:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: Migrations and end-to-end tests (MySQL)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: method_commerce_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ppassword"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://root:password@127.0.0.1:3306/method_commerce_test
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else
+      REDIS_ENABLED: 'false'
+      OTP_EXPOSE_IN_RESPONSE: 'true'
+      SMS_DRIVER: console
+      LOG_LEVEL: warn
+      LOG_TO_FILE: 'false'
+      SEED_ADMIN_PASSWORD: admin1234
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      # Applies every migration to a real MySQL, so a broken migration fails here.
+      - run: npx prisma migrate deploy
+      - run: npm run seed
+      - run: npm run test:e2e

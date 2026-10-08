@@ -1,5 +1,4 @@
 import 'reflect-metadata'
-import { ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory } from '@nestjs/core'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
@@ -7,8 +6,8 @@ import compression from 'compression'
 import helmet from 'helmet'
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston'
 import { AppConfig } from '@config/app.config'
-import { InvalidInputError } from '@shared/domain/errors'
 import { AppModule } from './app.module'
+import { configureHttp } from './app.setup'
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
@@ -20,25 +19,11 @@ async function bootstrap(): Promise<void> {
 
   app.use(helmet())
   app.use(compression())
-  app.setGlobalPrefix(config.apiPrefix)
+  configureHttp(app, config.apiPrefix)
   app.enableCors({
     origin: config.corsOrigins.length > 0 ? config.corsOrigins : true,
     credentials: true,
   })
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      // Request validation failures surface as domain errors so the exception
-      // filter renders one consistent error shape.
-      exceptionFactory: (errors) =>
-        new InvalidInputError('Request validation failed', {
-          errors: errors.flatMap((error) => Object.values(error.constraints ?? {})),
-        }),
-    })
-  )
 
   app.enableShutdownHooks()
 

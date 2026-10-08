@@ -285,6 +285,7 @@ describe('Variant pricing', () => {
 describe('Product publishing', () => {
   it('announces a change in visibility once saved', () => {
     const product = Product.fromPersistence(9, {
+      taxExempt: false,
       title: 'دریل شارژی',
       slug: Slug.create('cordless-drill'),
       subTitle: null,
