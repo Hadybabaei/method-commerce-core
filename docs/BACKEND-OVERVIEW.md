@@ -145,6 +145,7 @@ Catalog  ──sellable variants──► Basket, Favorites, Comments, Ordering
 Basket   ──open cart──► Ordering (checkout)
 Addressing ──address snapshot──► Ordering
 Ordering ──lifecycle events──► Notifications
+Catalog  ──catalog.changed──► Search, Stock alerts, response cache, storefront revalidation
 ```
 
 | Module | Responsibility |
@@ -152,13 +153,18 @@ Ordering ──lifecycle events──► Notifications
 | **Identity** | Customer OTP auth, admin password auth, profiles, JWT guards |
 | **Addressing** | Provinces/cities, customer delivery addresses |
 | **Catalog** | Category tree, brands, products, options, variants, inventory levels |
-| **Favorites** | Per-user product wishlist |
+| **Favorites** | Per-user wishlist; each saved product can remember the chosen variant |
 | **Basket** | One open cart per customer (lines are variants) |
 | **Ordering** | Checkout, orders, inventory reservation, Zibal payments, jobs |
 | **Comments** | Product Q&A / reviews with one-level replies and moderation |
 | **Notifications** | In-app inbox; other modules call `sendNotification` |
+| **Promotions** | Coupons and automatic campaigns; one per order, the best one wins |
+| **Store** | Store settings: VAT rate, return window, seller details for invoices |
+| **Backoffice** | Dashboard and reports, CSV exports, customers, stock adjustments, admin audit log |
+| **Search** | Product search with facets, suggestions and recommendations (Meilisearch or in memory) |
+| **Stock alerts** | "Tell me when it's back" SMS per variant |
 
-Shared infrastructure (global): Prisma, Redis OTP store, JWT, bcrypt, SMS, mail, disk storage, event publisher, clock.
+Shared infrastructure (global): Prisma, Redis (OTP store, response cache), JWT, bcrypt, SMS, mail, object storage (disk or S3), event publisher, clock.
 
 ---
 
@@ -171,6 +177,7 @@ Global prefix: `/api` (override with `API_PREFIX`).
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/health` | Liveness + `SELECT 1` on MySQL |
+| GET | `/health/ready` | Database, Redis and search; 503 when one is down |
 | POST | `/auth/otp/request` | Send SMS code (3/min) |
 | POST | `/auth/otp/verify` | Issue token pair; activates account |
 | POST | `/auth/refresh` | New access token from stored refresh token |
@@ -185,7 +192,12 @@ Global prefix: `/api` (override with `API_PREFIX`).
 | GET | `/brands/:slug` | |
 | GET | `/products` | Published only; filters + pagination |
 | GET | `/products/:slug` | Options + variants |
-| GET | `/products/:slug/comments` | Published comments |
+| GET | `/products/:slug/comments` | Published comments; authors carry `verifiedBuyer` |
+| GET | `/products/:slug/related` | In-stock best sellers of the same category, then brand |
+| GET | `/products/:slug/bought-together` | Products most often in the same orders |
+| GET | `/search` | Words, category subtree, brands, option values, price, stock; sorts; facets |
+| GET | `/search/suggest` | Type-ahead products and categories |
+| GET | `/sitemap`, `/slug-redirects/:type/:slug` | For the storefront's sitemap and 301s |
 | GET | `/payments/callback` | Zibal browser redirect (unauthenticated) |
 
 ### Customer (Bearer `customer`)
@@ -195,7 +207,8 @@ Global prefix: `/api` (override with `API_PREFIX`).
 | POST | `/auth/logout` |
 | GET, PATCH | `/users/me` |
 | CRUD | `/users/me/addresses` |
-| GET, POST, DELETE | `/users/me/favorites` |
+| GET, POST, PATCH, DELETE | `/users/me/favorites` (PATCH `:productId` sets the variant) |
+| GET, POST, DELETE | `/users/me/stock-alerts` |
 | GET, mutate, DELETE | `/users/me/basket` (+ `/items`, `/increase`, `/decrease`) |
 | POST | `/orders`, `/orders/preview` |
 | GET | `/orders`, `/orders/:id` |
@@ -211,7 +224,12 @@ Global prefix: `/api` (override with `API_PREFIX`).
 |---|---|
 | GET | `/admin/auth/me` |
 | POST | `/admin/auth/change-password` |
-| POST | `/admin/accounts` | Super admin only |
+| GET, POST | `/admin/accounts` (+ PUT `:id/permissions`) |
+| POST | `/admin/uploads` |
+| POST | `/admin/search/reindex` |
+| CRUD | `/admin/promotions`, `/admin/shipping-methods` |
+| GET, PUT | `/admin/settings` |
+| GET | `/admin/reports/*`, `/admin/customers`, `/admin/stock`, `/admin/audit-log` |
 | CRUD | `/admin/categories`, `/admin/brands`, `/admin/products` |
 | PUT | `/admin/products/:id/options` |
 | POST/PATCH/DELETE | `/admin/products/:id/variants` |
@@ -441,6 +459,15 @@ Inboxes: `GET /users/me/notifications` and `GET /admin/notifications`.
 |---|---|---|
 | Unpaid-order | `CancelUnpaidOrderProcessor` | After `ORDER_UNPAID_CANCEL_DELAY_MS` (15 min), cancel still-PENDING ONLINE orders and release stock |
 | Payment inquiry | `InquireOpenPaymentsProcessor` + scheduler | Poll Zibal for payments the customer never redirected back from |
+| Order SMS | `SendOrderSmsProcessor` | Order placed, paid, shipped, delivered, cancelled texts with retries |
+
+In-process background work (no Redis needed):
+
+- **Search indexing**: `SearchIndexerService` re-indexes changed products (debounced) on `catalog.changed` and comment events, rebuilds on start-up (`SEARCH_REINDEX_ON_BOOT`) and every `SEARCH_REFRESH_MINUTES` for stock and sales changes no event reports. Meilisearch rebuilds swap indexes, so searches never see a half-built one.
+- **Stock alerts**: `StockAlertNotifier` runs after catalog/stock changes and every 5 minutes; each alert is claimed in the database before its SMS, so several API instances never text twice.
+- **Freshness**: `CatalogFreshnessListener` bumps the `catalog` response-cache version and, when configured, calls the storefront's `/api/revalidate`.
+
+`catalog.changed` comes from `CatalogChangeInterceptor`, which maps every successful admin write under `/admin/products`, `/admin/categories`, `/admin/brands` and `/admin/stock` to the products it touched.
 
 ---
 
@@ -542,9 +569,11 @@ A Postman collection lives in `postman/`.
 
 These are encoded in the code, not accidental:
 
-- Shipping fee is always `0` (preview field exists for later).
-- No discount / coupon / tax engine.
-- Favorites are **products**, not variants.
+- One promotion per order: a coupon never stacks with a campaign.
+- A favorite is one per product; it can remember a variant, but the same product cannot be saved twice in two variants.
+- Search without `MEILISEARCH_URL` is in memory: word-prefix matching, no typo tolerance, one process.
+- Cached public reads can show stock up to 60 seconds old; the basket and checkout always check live stock.
+- Only Zibal is integrated; there is no fallback gateway.
 - Comments have a **single** reply level.
 - Online payments depend on Redis + BullMQ being up.
 - Location seed is a small Tehran/Isfahan/Fars fixture; production should import the full national list.
