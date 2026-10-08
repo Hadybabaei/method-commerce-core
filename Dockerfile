@@ -13,7 +13,7 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma
 # schema reads DATABASE_URL at generate time; no live database is required
 ENV DATABASE_URL="mysql://build:build@127.0.0.1:3306/build"
-RUN npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm install --no-audit --no-fund --fetch-retries=6 --fetch-timeout=600000 --fetch-retry-maxtimeout=120000
 
 # ---- compile Nest and generate the Prisma client ----
 FROM deps AS build
@@ -45,5 +45,6 @@ EXPOSE 4000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=6 \
   CMD node -e "const p=process.env.PORT||4000; const a=process.env.API_PREFIX||'api'; fetch('http://127.0.0.1:'+p+'/'+a+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Apply pending migrations, import idempotent seed data, then start.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/prisma/seed.js && exec node dist/main.js"]
+# Apply pending migrations, import idempotent seed data (plus the demo catalogue
+# when SEED_DEMO=true), then start.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/prisma/seed.js && if [ \"$SEED_DEMO\" = true ]; then node dist/prisma/seed-demo.js; fi && exec node dist/main.js"]
