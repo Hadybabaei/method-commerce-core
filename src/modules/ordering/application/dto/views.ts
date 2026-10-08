@@ -10,7 +10,9 @@ export interface OrderItemView {
   quantity: number
   unitPrice: number
   lineTotal: number
-  /** VAT on this line; 0 for exempt goods. */
+  /** Share of the order discount. */
+  discountAmount: number
+  /** VAT on this line (after discount); 0 for exempt goods. */
   taxAmount: number
   product: OrderProductSnapshot
 }
@@ -24,6 +26,14 @@ export interface OrderPaymentView {
 }
 
 /** A shipping method as offered at checkout, with its fee for this basket. */
+export interface OrderPromotionView {
+  id: number
+  name: string
+  code: string | null
+  kind: string
+  value: number
+}
+
 export interface ShippingOptionView {
   id: number
   name: string
@@ -93,10 +103,14 @@ export interface OrderView {
   itemCount: number
   subtotal: number
   shippingFee: number
+  /** Goods and shipping discount. */
+  discountTotal: number
+  /** The promotion used, if any. */
+  promotion: OrderPromotionView | null
   /** VAT rate at checkout in basis points (1000 = 10%). */
   taxRateBp: number
   taxTotal: number
-  /** subtotal + shippingFee + taxTotal; what the customer pays. */
+  /** subtotal + shippingFee - discountTotal + taxTotal; what the customer pays. */
   total: number
   /** Sum of refunds paid back so far. */
   refundedTotal: number
@@ -135,6 +149,8 @@ export interface CreateOrderCommand {
   paymentMethod?: PaymentMethod
   /** Omitted = the cheapest method that delivers to the address. */
   shippingMethodId?: number | null
+  /** Coupon typed by the customer. */
+  couponCode?: string | null
   note?: string | null
 }
 
@@ -143,6 +159,7 @@ export interface CheckoutPreviewItemView {
   quantity: number
   unitPrice: number
   lineTotal: number
+  discountAmount: number
   taxAmount: number
   product: OrderProductSnapshot
 }
@@ -158,6 +175,10 @@ export interface CheckoutPreviewView {
   /** The method the order will use; null when the store has none. */
   shippingMethodId: number | null
   shippingFee: number
+  discountTotal: number
+  promotion: OrderPromotionView | null
+  /** True when the coupon was valid but an automatic campaign saved more. */
+  couponOutranked: boolean
   /** Basis points; 1000 = 10%. */
   taxRateBp: number
   taxTotal: number

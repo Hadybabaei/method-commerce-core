@@ -96,6 +96,9 @@ export class OrderItemResponse implements OrderItemView {
   @ApiProperty({ example: 4_800_000 })
   lineTotal: number
 
+  @ApiProperty({ example: 0, description: 'Share of the order discount, Rial.' })
+  discountAmount: number
+
   @ApiProperty({ example: 480_000, description: 'VAT on this line in Rial; 0 for exempt goods.' })
   taxAmount: number
 
@@ -118,6 +121,14 @@ export class OrderPaymentResponse {
 
   @ApiProperty({ nullable: true })
   gatewayRef: string | null
+}
+
+export class OrderPromotionResponse {
+  @ApiProperty() id: number
+  @ApiProperty({ example: 'تخفیف پاییزه' }) name: string
+  @ApiProperty({ nullable: true, example: 'AUTUMN10' }) code: string | null
+  @ApiProperty({ example: 'PERCENT' }) kind: string
+  @ApiProperty({ example: 10 }) value: number
 }
 
 export class OrderShippingMethodResponse {
@@ -203,6 +214,12 @@ export class OrderResponse implements OrderView {
   })
   total: number
 
+  @ApiProperty({ example: 0, description: 'Goods and shipping discount, Rial.' })
+  discountTotal: number
+
+  @ApiProperty({ type: OrderPromotionResponse, nullable: true })
+  promotion: OrderPromotionResponse | null
+
   @ApiProperty({ example: 1000, description: 'VAT rate at checkout in basis points (1000 = 10%).' })
   taxRateBp: number
 
@@ -282,6 +299,9 @@ export class CheckoutPreviewItemResponse {
   @ApiProperty({ example: 4_800_000 })
   lineTotal: number
 
+  @ApiProperty({ example: 0, description: 'Share of the order discount, Rial.' })
+  discountAmount: number
+
   @ApiProperty({ example: 480_000, description: 'VAT on this line in Rial; 0 for exempt goods.' })
   taxAmount: number
 
@@ -324,6 +344,15 @@ export class CheckoutPreviewResponse {
     description: 'Fee of the selected method in Rial; 0 when none.',
   })
   shippingFee: number
+
+  @ApiProperty({ example: 0, description: 'Goods and shipping discount, Rial.' })
+  discountTotal: number
+
+  @ApiProperty({ type: OrderPromotionResponse, nullable: true })
+  promotion: OrderPromotionResponse | null
+
+  @ApiProperty({ description: 'The coupon was valid but an automatic campaign saved more.' })
+  couponOutranked: boolean
 
   @ApiProperty({ example: 1000, description: 'Basis points; 1000 = 10%.' })
   taxRateBp: number

@@ -70,6 +70,9 @@ import { ShippingMethod } from '../../domain/entities/shipping-method.entity'
 import { ShippingMethodRepository } from '../../domain/repositories/shipping-method.repository'
 import { OrderSms, OrderSmsDispatcher } from '../ports/order-sms.port'
 import { GetInvoiceUseCase } from '../use-cases/get-invoice.use-case'
+import { PromotionEngineService } from '@modules/promotions/application/promotion-engine.service'
+import { PromotionRepository } from '@modules/promotions/application/promotion.ports'
+import { Promotion } from '@modules/promotions/domain/promotion.entity'
 import {
   DecideReturnUseCase,
   ListReturnRequestsUseCase,
@@ -346,6 +349,94 @@ export class InMemoryRefunds implements RefundRepository {
   }
 }
 
+/** Promotions kept in memory; the real PromotionEngineService runs on top of it. */
+export class InMemoryPromotions implements PromotionRepository {
+  private nextId = 1
+  readonly byId = new Map<number, Promotion>()
+  readonly redemptions: { promotionId: number; orderId: number; userId: number; amount: number }[] =
+    []
+
+  async findById(id: number): Promise<Promotion | null> {
+    return this.byId.get(id) ?? null
+  }
+
+  async findByCode(code: string): Promise<Promotion | null> {
+    return [...this.byId.values()].find((promotion) => promotion.code === code) ?? null
+  }
+
+  async listLiveCampaigns(now: Date): Promise<Promotion[]> {
+    return [...this.byId.values()].filter(
+      (promotion) =>
+        promotion.code === null &&
+        promotion.isActive &&
+        promotion.startsAt <= now &&
+        (promotion.endsAt === null || now < promotion.endsAt)
+    )
+  }
+
+  async list(): Promise<Promotion[]> {
+    return [...this.byId.values()]
+  }
+
+  async save(promotion: Promotion): Promise<Promotion> {
+    const id = promotion.id || this.nextId++
+    const saved = this.copy(id, promotion, promotion.usedCount)
+    this.byId.set(id, saved)
+    return saved
+  }
+
+  async delete(id: number): Promise<void> {
+    this.byId.delete(id)
+  }
+
+  async findByIdForUpdate(id: number): Promise<Promotion | null> {
+    return this.findById(id)
+  }
+
+  async countRedemptions(promotionId: number, userId: number): Promise<number> {
+    return this.redemptions.filter((r) => r.promotionId === promotionId && r.userId === userId)
+      .length
+  }
+
+  async addRedemption(input: {
+    promotionId: number
+    orderId: number
+    userId: number
+    amount: number
+  }): Promise<void> {
+    this.redemptions.push(input)
+    const promotion = this.byId.get(input.promotionId)!
+    this.byId.set(promotion.id, this.copy(promotion.id, promotion, promotion.usedCount + 1))
+  }
+
+  async releaseRedemption(orderId: number): Promise<void> {
+    const index = this.redemptions.findIndex((r) => r.orderId === orderId)
+    if (index < 0) return
+    const [released] = this.redemptions.splice(index, 1)
+    const promotion = this.byId.get(released.promotionId)!
+    this.byId.set(promotion.id, this.copy(promotion.id, promotion, promotion.usedCount - 1))
+  }
+
+  private copy(id: number, promotion: Promotion, usedCount: number): Promotion {
+    return Promotion.fromPersistence(id, {
+      name: promotion.name,
+      code: promotion.code,
+      kind: promotion.kind,
+      value: promotion.value,
+      maxDiscount: promotion.maxDiscount,
+      minSubtotal: promotion.minSubtotal,
+      startsAt: promotion.startsAt,
+      endsAt: promotion.endsAt,
+      usageLimit: promotion.usageLimit,
+      perCustomerLimit: promotion.perCustomerLimit,
+      categoryIds: promotion.categoryIds,
+      brandIds: promotion.brandIds,
+      isActive: promotion.isActive,
+      usedCount,
+    })
+  }
+}
+
 export class InMemoryOrderRepository implements OrderRepository {
   private nextId = 1
   readonly byId = new Map<number, Order>()
@@ -446,6 +537,7 @@ export class InMemoryOrderRepository implements OrderRepository {
           unitPrice: item.unitPrice.amount,
           lineTotal: item.lineTotal.amount,
           taxAmount: item.taxAmount.amount,
+          discountAmount: item.discountAmount.amount,
           productSnapshot: item.productSnapshot,
         })
       ),
@@ -455,6 +547,7 @@ export class InMemoryOrderRepository implements OrderRepository {
       shipping: order.shipping,
       taxRateBp: order.taxRateBp,
       refundedTotal: order.refundedTotal,
+      discount: order.discount,
       trackingCode: order.trackingCode,
       trackingUrl: order.trackingUrl,
       cancelledAt: order.cancelledAt,
@@ -654,6 +747,8 @@ class InMemoryOrderReads implements OrderReadModel {
       itemCount: order.itemCount,
       subtotal: order.subtotal.amount,
       shippingFee: order.shipping.fee.amount,
+      discountTotal: order.discountTotal.amount,
+      promotion: order.discount.promotion,
       taxRateBp: order.taxRateBp,
       taxTotal: order.taxTotal.amount,
       refundedTotal: order.refundedTotal.amount,
@@ -682,6 +777,7 @@ class InMemoryOrderReads implements OrderReadModel {
         unitPrice: item.unitPrice.amount,
         lineTotal: item.lineTotal.amount,
         taxAmount: item.taxAmount.amount,
+        discountAmount: item.discountAmount.amount,
         product: item.productSnapshot,
       })),
       payment: payment
@@ -1031,6 +1127,9 @@ export function defaultVariant(
     compareAtPrice: null,
     weightGrams: 500,
     taxExempt: false,
+    categoryId: null,
+    categoryPath: null,
+    brandId: null,
     availableQuantity: 10,
     options: [{ option: 'رنگ', value: 'قرمز' }],
     image: null,
@@ -1146,6 +1245,7 @@ export interface CommerceHarness {
   shipOrder: ShipOrderUseCase
   shippingMethods: InMemoryShippingMethods
   storeSettings: InMemoryStoreSettings
+  promotions: InMemoryPromotions
   getInvoice: GetInvoiceUseCase
   returnRequests: InMemoryReturnRequests
   refunds: InMemoryRefunds
@@ -1236,6 +1336,8 @@ export function createCommerceHarness(): CommerceHarness {
   const returnRequests = new InMemoryReturnRequests()
   const refunds = new InMemoryRefunds()
   const storeSettings = new InMemoryStoreSettings()
+  const promotions = new InMemoryPromotions()
+  const promotionEngine = new PromotionEngineService(promotions)
   const orderReads = new InMemoryOrderReads(
     orders,
     payments,
@@ -1257,7 +1359,8 @@ export function createCommerceHarness(): CommerceHarness {
     asAddressReads(addresses),
     variantLookup,
     shippingMethods,
-    storeSettings
+    storeSettings,
+    promotionEngine
   )
   const cancelOrder = new CancelOrderUseCase(
     orders,
@@ -1266,7 +1369,8 @@ export function createCommerceHarness(): CommerceHarness {
     payments,
     paymentTimeouts,
     orderNotifications,
-    prisma
+    prisma,
+    promotionEngine
   )
   const handleCallback = new HandlePaymentCallbackUseCase(
     orders,
@@ -1317,6 +1421,7 @@ export function createCommerceHarness(): CommerceHarness {
     shipOrder: new ShipOrderUseCase(orders, orderReads, clock, orderNotifications, prisma),
     shippingMethods,
     storeSettings,
+    promotions,
     getInvoice: new GetInvoiceUseCase(orderReads, storeSettings, users),
     returnRequests,
     refunds,

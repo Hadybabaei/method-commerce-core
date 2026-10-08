@@ -16,6 +16,7 @@ import { CatalogModule } from '@modules/catalog/catalog.module'
 import { IdentityModule } from '@modules/identity/identity.module'
 import { NotificationsModule } from '@modules/notifications/notifications.module'
 import { StoreModule } from '@modules/store/store.module'
+import { PromotionsModule } from '@modules/promotions/promotions.module'
 import { ORDER_PAYMENT_TIMEOUT_SCHEDULER } from './application/ports/order-payment-timeout.port'
 import { ORDER_READ_MODEL } from './application/ports/order-read.port'
 import { PAYMENT_GATEWAY } from './application/ports/payment-gateway.port'
@@ -97,6 +98,7 @@ const useCases = [
     AddressingModule,
     NotificationsModule,
     StoreModule,
+    PromotionsModule,
   ],
   controllers: [
     OrdersController,

@@ -32,9 +32,10 @@ class InvoiceLineResponse implements InvoiceLineView {
   options: { option: string; value: string }[]
   @ApiProperty() quantity: number
   @ApiProperty({ description: 'Rial.' }) unitPrice: number
-  @ApiProperty({ description: 'Before VAT, Rial.' }) lineTotal: number
+  @ApiProperty({ description: 'Before discount and VAT, Rial.' }) lineTotal: number
+  @ApiProperty({ description: 'Rial.' }) discountAmount: number
   @ApiProperty({ description: 'Rial.' }) taxAmount: number
-  @ApiProperty({ description: 'lineTotal + taxAmount, Rial.' }) total: number
+  @ApiProperty({ description: 'lineTotal - discountAmount + taxAmount, Rial.' }) total: number
 }
 
 export class InvoiceResponse implements InvoiceView {
@@ -61,6 +62,7 @@ export class InvoiceResponse implements InvoiceView {
 
   @ApiProperty() subtotal: number
   @ApiProperty() shippingFee: number
+  @ApiProperty() discountTotal: number
   @ApiProperty({ description: 'Basis points; 1000 = 10%.' }) taxRateBp: number
   @ApiProperty() taxTotal: number
   @ApiProperty() total: number

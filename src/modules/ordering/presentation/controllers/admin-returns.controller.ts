@@ -1,3 +1,4 @@
+import { RequirePermission } from '@shared/presentation/decorators/require-permission.decorator'
 import {
   Body,
   Controller,
@@ -28,6 +29,7 @@ import {
 @ApiTags('Admin returns')
 @ApiBearerAuth('admin')
 @UseGuards(AdminAuthGuard)
+@RequirePermission('orders')
 @Controller('admin/returns')
 export class AdminReturnsController {
   constructor(

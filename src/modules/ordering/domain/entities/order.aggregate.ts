@@ -26,6 +26,23 @@ export interface OrderShipping {
   weightGrams: number
 }
 
+/** The promotion an order used, frozen at checkout. */
+export interface OrderPromotionSnapshot {
+  id: number
+  name: string
+  code: string | null
+  kind: string
+  value: number
+}
+
+export interface OrderDiscount {
+  /** Goods plus shipping discount. */
+  total: Money
+  promotion: OrderPromotionSnapshot | null
+}
+
+const NO_DISCOUNT: OrderDiscount = { total: Money.zero, promotion: null }
+
 /** A status change not yet written to the history table. */
 export interface OrderStatusChange {
   from: OrderStatus | null
@@ -67,6 +84,7 @@ export interface OrderProps {
   taxRateBp: number
   /** Sum of refunds recorded so far. */
   refundedTotal: Money
+  discount: OrderDiscount
   trackingCode: string | null
   trackingUrl: string | null
   cancelledAt: Date | null
@@ -85,6 +103,7 @@ export interface CreateOrderInput {
   addressSnapshot: AddressSnapshot
   shipping?: OrderShipping
   taxRateBp?: number
+  discount?: OrderDiscount
   note?: string | null
 }
 
@@ -124,6 +143,7 @@ export class Order extends AggregateRoot {
       shipping: input.shipping ?? NO_SHIPPING,
       taxRateBp: input.taxRateBp ?? 0,
       refundedTotal: Money.zero,
+      discount: input.discount ?? NO_DISCOUNT,
       trackingCode: null,
       trackingUrl: null,
       cancelledAt: null,
@@ -445,9 +465,21 @@ export class Order extends AggregateRoot {
     return this.props.items.reduce((sum, item) => sum.add(item.taxAmount), Money.zero)
   }
 
-  /** What the customer pays: subtotal, shipping and VAT. */
+  /** Goods and shipping discount together. */
+  get discountTotal(): Money {
+    return this.props.discount.total
+  }
+
+  get discount(): OrderDiscount {
+    return this.props.discount
+  }
+
+  /** What the customer pays: subtotal + shipping − discount + VAT. */
   get total(): Money {
-    return this.subtotal.add(this.props.shipping.fee).add(this.taxTotal)
+    return this.subtotal
+      .add(this.props.shipping.fee)
+      .subtract(this.props.discount.total)
+      .add(this.taxTotal)
   }
 
   get refundedTotal(): Money {

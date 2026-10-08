@@ -35,10 +35,11 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
     }
 
     const address = await this.assembler.requireOwnedAddress(command.userId, command.addressId)
-    const { items, weightGrams, taxRateBp } = await this.assembler.buildItems(basketView.items)
+    const lines = await this.assembler.buildItems(basketView.items)
+    const { weightGrams, taxRateBp } = lines
     const note = Order.normalizeNote(command.note)
     const paymentMethod = command.paymentMethod ?? PaymentMethod.CashOnDelivery
-    const subtotal = items.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
+    const subtotal = lines.items.reduce((sum, item) => sum.add(item.lineTotal), Money.zero)
     const shipping = await this.assembler.quoteShipping({
       provinceId: address.province.id,
       subtotal,
@@ -46,7 +47,16 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
       shippingMethodId: command.shippingMethodId,
     })
     const shippingFee = shipping.selected?.fee.amount ?? 0
+    const { applied, couponOutranked } = await this.assembler.choosePromotion({
+      userId: command.userId,
+      couponCode: command.couponCode,
+      lines,
+      shippingFee,
+      now: new Date(),
+    })
+    const { items, discount } = CheckoutAssembler.applyDiscount(lines, applied)
     const taxTotal = items.reduce((sum, item) => sum + item.taxAmount.amount, 0)
+    const discountTotal = discount.total.amount
 
     return {
       address,
@@ -55,6 +65,7 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
         quantity: item.quantity,
         unitPrice: item.unitPrice.amount,
         lineTotal: item.lineTotal.amount,
+        discountAmount: item.discountAmount.amount,
         taxAmount: item.taxAmount.amount,
         product: item.productSnapshot,
       })),
@@ -72,9 +83,12 @@ export class PreviewCheckoutUseCase implements UseCase<CreateOrderCommand, Check
       })),
       shippingMethodId: shipping.selected?.method.id ?? null,
       shippingFee,
+      discountTotal,
+      promotion: discount.promotion,
+      couponOutranked,
       taxRateBp,
       taxTotal,
-      total: subtotal.amount + shippingFee + taxTotal,
+      total: subtotal.amount + shippingFee - discountTotal + taxTotal,
       paymentMethod,
       note,
     }

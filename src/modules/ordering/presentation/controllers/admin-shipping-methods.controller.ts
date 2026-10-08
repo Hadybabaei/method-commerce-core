@@ -1,3 +1,4 @@
+import { RequirePermission } from '@shared/presentation/decorators/require-permission.decorator'
 import {
   Body,
   Controller,
@@ -38,6 +39,7 @@ import { ShippingMethodResponse } from '../dto/shipping-method.response'
 @ApiTags('Admin shipping')
 @ApiBearerAuth('admin')
 @UseGuards(AdminAuthGuard)
+@RequirePermission('settings')
 @Controller('admin/shipping-methods')
 export class AdminShippingMethodsController {
   constructor(

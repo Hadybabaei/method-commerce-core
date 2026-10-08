@@ -1,3 +1,4 @@
+import { RequirePermission } from '@shared/presentation/decorators/require-permission.decorator'
 import {
   Body,
   Controller,
@@ -46,6 +47,7 @@ import { CommentImagesInterceptor } from '../interceptors/comment-images.interce
 @ApiTags('Admin comments')
 @ApiBearerAuth('admin')
 @UseGuards(AdminAuthGuard)
+@RequirePermission('comments')
 @Controller('admin')
 export class AdminCommentsController {
   constructor(

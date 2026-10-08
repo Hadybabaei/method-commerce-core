@@ -4,6 +4,10 @@ import { USER_REPOSITORY } from './domain/repositories/user.repository'
 import { AdminLoginUseCase } from './application/use-cases/admin-login.use-case'
 import { ChangeAdminPasswordUseCase } from './application/use-cases/change-admin-password.use-case'
 import { CreateAdminUseCase } from './application/use-cases/create-admin.use-case'
+import {
+  ListAdminsUseCase,
+  UpdateAdminPermissionsUseCase,
+} from './application/use-cases/manage-admins.use-cases'
 import { GetCurrentAdminUseCase } from './application/use-cases/get-current-admin.use-case'
 import { GetCurrentUserUseCase } from './application/use-cases/get-current-user.use-case'
 import { LogoutUseCase } from './application/use-cases/logout.use-case'
@@ -26,6 +30,8 @@ import { MinAuthLevelGuard } from './presentation/guards/min-auth-level.guard'
 import { RolesGuard } from './presentation/guards/roles.guard'
 
 const useCases = [
+  ListAdminsUseCase,
+  UpdateAdminPermissionsUseCase,
   RequestOtpUseCase,
   VerifyOtpUseCase,
   RefreshAccessTokenUseCase,

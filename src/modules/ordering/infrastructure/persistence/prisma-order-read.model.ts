@@ -18,6 +18,7 @@ import {
   OrderPaymentView,
   OrderView,
   PaginatedOrdersView,
+  OrderPromotionView,
   PaginatedReturnRequestsView,
   ReturnRequestView,
 } from '../../application/dto/views'
@@ -175,6 +176,7 @@ function toView(record: OrderRecord, returnWindowDays: number): OrderView {
     unitPrice: item.unitPrice,
     lineTotal: item.lineTotal,
     taxAmount: item.taxAmount,
+    discountAmount: item.discountAmount,
     product: item.productSnapshot as unknown as OrderProductSnapshot,
   }))
 
@@ -191,6 +193,8 @@ function toView(record: OrderRecord, returnWindowDays: number): OrderView {
     itemCount: record.itemCount,
     subtotal: record.subtotal,
     shippingFee: record.shippingFee,
+    discountTotal: record.discountTotal,
+    promotion: (record.promotionSnapshot as unknown as OrderPromotionView | null) ?? null,
     taxRateBp: record.taxRateBp,
     taxTotal: record.taxTotal,
     total: record.total,

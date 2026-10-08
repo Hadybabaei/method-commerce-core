@@ -44,6 +44,15 @@ export class CreateOrderRequest {
   @Min(1)
   shipping_method_id?: number
 
+  @ApiPropertyOptional({
+    example: 'AUTUMN10',
+    description: 'Coupon code; the best of it and any automatic campaign applies.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  coupon_code?: string
+
   @ApiPropertyOptional({ example: 'لطفا عصر تحویل دهید', maxLength: 1000 })
   @IsOptional()
   @IsString()

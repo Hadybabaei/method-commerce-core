@@ -1,3 +1,4 @@
+import { RequirePermission } from '@shared/presentation/decorators/require-permission.decorator'
 import { Body, Controller, Get, HttpStatus, Put, UseGuards } from '@nestjs/common'
 import {
   ApiBearerAuth,
@@ -116,6 +117,7 @@ class StoreSettingsResponse implements StoreSettings {
 @ApiTags('Admin settings')
 @ApiBearerAuth('admin')
 @UseGuards(AdminAuthGuard)
+@RequirePermission('settings')
 @Controller('admin/settings')
 export class AdminStoreSettingsController {
   constructor(

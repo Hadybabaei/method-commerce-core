@@ -34,10 +34,11 @@ export interface InvoiceLineView {
   options: { option: string; value: string }[]
   quantity: number
   unitPrice: number
-  /** quantity × unitPrice, before VAT. */
+  /** quantity × unitPrice, before discount and VAT. */
   lineTotal: number
+  discountAmount: number
   taxAmount: number
-  /** lineTotal + taxAmount. */
+  /** lineTotal - discountAmount + taxAmount. */
   total: number
 }
 
@@ -58,6 +59,7 @@ export interface InvoiceView {
   lines: InvoiceLineView[]
   subtotal: number
   shippingFee: number
+  discountTotal: number
   taxRateBp: number
   taxTotal: number
   total: number
@@ -118,11 +120,13 @@ export class GetInvoiceUseCase implements UseCase<GetInvoiceQuery, InvoiceView> 
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         lineTotal: item.lineTotal,
+        discountAmount: item.discountAmount,
         taxAmount: item.taxAmount,
-        total: item.lineTotal + item.taxAmount,
+        total: item.lineTotal - item.discountAmount + item.taxAmount,
       })),
       subtotal: order.subtotal,
       shippingFee: order.shippingFee,
+      discountTotal: order.discountTotal,
       taxRateBp: order.taxRateBp,
       taxTotal: order.taxTotal,
       total: order.total,

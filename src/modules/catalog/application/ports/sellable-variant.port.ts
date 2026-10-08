@@ -7,6 +7,10 @@ export interface SellableVariantSnapshot {
   variantId: number
   productId: number
   productTitle: string
+  /** For promotion scope: the product category, its ancestor path ("/1/7/") and brand. */
+  categoryId: number | null
+  categoryPath: string | null
+  brandId: number | null
   productSlug: string
   productPublished: boolean
   sku: string

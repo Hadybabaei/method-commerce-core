@@ -136,6 +136,7 @@ describe('Order', () => {
       shipping: { method: null, fee: Money.zero, weightGrams: 0 },
       taxRateBp: 0,
       refundedTotal: Money.zero,
+      discount: { total: Money.zero, promotion: null },
       trackingCode: null,
       trackingUrl: null,
       cancelledAt: null,

@@ -28,6 +28,8 @@ model user {
   otp_code       String?
   otp_expiry     DateTime?
   account_status Boolean?
+  /// Set when an admin blocks the customer; blocked customers cannot sign in or order.
+  blocked_at     DateTime?
   type           UserType  @default(NORMAL)
   avatar         String?
   role           String    @default("user")
@@ -68,6 +70,8 @@ model admin {
   email                String    @unique
   password             String
   role                 String    @default("operator")
+  /// Permission keys this admin holds; the "admin" role (super admin) has all of them.
+  permissions          Json?
   status               Boolean   @default(true)
   first_name           String?
   last_name            String?
@@ -80,6 +84,7 @@ model admin {
   created_at           DateTime  @default(now())
 
   comments      comment[]
+  auditLogs     admin_audit_log[]
   notifications notification[]
 }
 
@@ -272,14 +277,17 @@ model product_variant {
   /// Set only while the variant is genuinely on sale; always below `price`.
   sale_price Int?
 
-  weightGrams Int?
-  image       String? @db.Text
-  is_active   Boolean @default(true)
+  weightGrams         Int?
+  image               String? @db.Text
+  is_active           Boolean @default(true)
+  /// Alert when units available across warehouses fall to this number; null = no alert.
+  low_stock_threshold Int?
 
-  optionValues variant_option_value[]
-  inventory    inventory_level[]
-  basketItems  basket_item[]
-  orderItems   order_item[]
+  optionValues   variant_option_value[]
+  inventory      inventory_level[]
+  basketItems    basket_item[]
+  orderItems     order_item[]
+  stockMovements stock_movement[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -415,30 +423,37 @@ model order {
   stockAllocations Json?
 
   /// Null when the store had no shipping methods configured at checkout.
-  shippingMethodId Int?
-  shippingMethod   shipping_method? @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
+  shippingMethodId  Int?
+  shippingMethod    shipping_method? @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
   /// Frozen copy of the chosen method (name, delivery days, tracking URL template).
-  shippingSnapshot Json?
+  shippingSnapshot  Json?
   /// Shipping charge in Rial, fixed at checkout.
-  shippingFee      Int              @default(0)
+  shippingFee       Int              @default(0)
   /// subtotal + shippingFee, in Rial. This is what the customer pays.
-  total            Int              @default(0)
+  total             Int              @default(0)
   /// Parcel weight used for the shipping quote.
-  weightGrams      Int              @default(0)
-  trackingCode     String?          @db.VarChar(100)
-  trackingUrl      String?          @db.Text
+  weightGrams       Int              @default(0)
+  trackingCode      String?          @db.VarChar(100)
+  trackingUrl       String?          @db.Text
   /// VAT rate at checkout in basis points (1000 = 10%).
-  taxRateBp        Int              @default(0)
+  taxRateBp         Int              @default(0)
   /// Sum of line VAT in Rial. total = subtotal + shippingFee + taxTotal.
-  taxTotal         Int              @default(0)
+  taxTotal          Int              @default(0)
+  /// Discount in Rial across goods and shipping. total = subtotal + shippingFee - discountTotal + taxTotal.
+  discountTotal     Int              @default(0)
+  promotionId       Int?
+  promotion         promotion?       @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  /// Frozen copy of the applied promotion (name, code, kind, value).
+  promotionSnapshot Json?
   /// Sum of recorded refunds in Rial; never above total.
-  refundedTotal    Int              @default(0)
+  refundedTotal     Int              @default(0)
 
   items          order_item[]
   payments       payment[]
   statusHistory  order_status_event[]
   returnRequests return_request[]
   refunds        refund[]
+  redemption     promotion_redemption?
 
   cancelledAt  DateTime?
   paidAt       DateTime?
@@ -468,6 +483,8 @@ model order_item {
 
   /// Immutable product/variant display payload from checkout.
   productSnapshot Json
+  /// Share of the order discount on this line, in Rial. VAT is charged on lineTotal - discountAmount.
+  discountAmount  Int  @default(0)
   /// VAT on this line in Rial; 0 for exempt goods.
   taxAmount       Int  @default(0)
 
@@ -743,4 +760,104 @@ model refund {
   created_at DateTime @default(now())
 
   @@index([orderId])
+}
+
+// ---------------------------------------------------------------------------
+// Promotions, stock movements, audit log
+// ---------------------------------------------------------------------------
+
+enum PromotionKind {
+  PERCENT
+  FIXED
+  FREE_SHIPPING
+}
+
+/// A coupon (code set) or an automatic campaign (no code). An order gets at
+/// most one promotion: the one worth the most.
+model promotion {
+  id                 Int           @id @default(autoincrement())
+  name               String
+  /// Uppercase coupon code; null for automatic campaigns.
+  code               String?       @unique @db.VarChar(40)
+  kind               PromotionKind
+  /// PERCENT: whole percent 1-100. FIXED: Rial. FREE_SHIPPING: ignored.
+  value              Int           @default(0)
+  /// Cap for PERCENT discounts, Rial.
+  max_discount       Int?
+  /// Eligible subtotal (Rial) needed before the promotion applies.
+  min_subtotal       Int?
+  starts_at          DateTime
+  ends_at            DateTime?
+  /// Total redemptions allowed; null = unlimited.
+  usage_limit        Int?
+  /// Redemptions per customer; null = unlimited.
+  per_customer_limit Int?
+  /// Limit to products in these categories (and their sub-categories) or brands; null = all.
+  category_ids       Json?
+  brand_ids          Json?
+  is_active          Boolean       @default(true)
+  used_count         Int           @default(0)
+
+  redemptions promotion_redemption[]
+  orders      order[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([is_active, starts_at])
+}
+
+/// One use of a promotion by an order. Deleted when the order is cancelled.
+model promotion_redemption {
+  id          Int       @id @default(autoincrement())
+  promotionId Int
+  promotion   promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  orderId     Int       @unique
+  order       order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId      Int
+  /// Rial.
+  amount      Int
+
+  created_at DateTime @default(now())
+
+  @@index([promotionId, userId])
+}
+
+/// Manual on-hand change by an admin, with the reason.
+model stock_movement {
+  id          Int             @id @default(autoincrement())
+  variantId   Int
+  variant     product_variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  locationId  Int
+  /// Positive adds units, negative removes them.
+  delta       Int
+  onHandAfter Int
+  reason      String          @db.VarChar(255)
+  adminId     Int?
+
+  created_at DateTime @default(now())
+
+  @@index([variantId, created_at])
+}
+
+/// Every back-office change: who, what, and the request that did it.
+model admin_audit_log {
+  id       Int     @id @default(autoincrement())
+  adminId  Int?
+  admin    admin?  @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  /// e.g. "POST /admin/orders/:id/refunds"
+  action   String  @db.VarChar(191)
+  /// Resource and id taken from the route, e.g. orders / 42.
+  entity   String  @db.VarChar(64)
+  entityId String? @db.VarChar(64)
+  /// Request body with secrets removed.
+  payload  Json?
+  /// HTTP status of the result.
+  status   Int
+
+  created_at DateTime @default(now())
+
+  @@index([adminId, created_at])
+  @@index([entity, entityId])
+  @@index([created_at])
 }

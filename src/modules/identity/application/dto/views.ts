@@ -21,6 +21,8 @@ export interface AdminView {
   id: number
   email: string
   role: string
+  /** Effective permissions; the super admin holds all of them. */
+  permissions: string[]
   active: boolean
   firstName: string | null
   lastName: string | null

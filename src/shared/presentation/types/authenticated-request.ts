@@ -9,6 +9,8 @@ export interface AuthenticatedActor {
   phoneNumber?: string
   email?: string
   authLevel?: number
+  /** Back-office permissions; set for admins only. */
+  permissions?: string[]
 }
 
 export interface AuthenticatedRequest extends Request {

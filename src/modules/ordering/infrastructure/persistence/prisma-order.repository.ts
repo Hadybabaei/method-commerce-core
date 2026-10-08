@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Money } from '@shared/domain/value-objects/money'
 import { PrismaService } from '@shared/infrastructure/persistence/prisma/prisma.service'
-import { Order, OrderShipping } from '../../domain/entities/order.aggregate'
+import { Order, OrderPromotionSnapshot, OrderShipping } from '../../domain/entities/order.aggregate'
 import { OrderItem } from '../../domain/entities/order-item.entity'
 import { ShippingSnapshot } from '../../domain/entities/shipping-method.entity'
 import { OrderReservationStatus, OrderStatus, PaymentMethod } from '../../domain/enums/order.enums'
@@ -62,6 +62,11 @@ export class PrismaOrderRepository implements OrderRepository {
         total: order.total.amount,
         taxRateBp: order.taxRateBp,
         taxTotal: order.taxTotal.amount,
+        discountTotal: order.discountTotal.amount,
+        promotionId: order.discount.promotion?.id ?? null,
+        promotionSnapshot: order.discount.promotion
+          ? (order.discount.promotion as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
         weightGrams: shipping.weightGrams,
         addressSnapshot: order.addressSnapshot as unknown as Prisma.InputJsonValue,
         note: order.note,
@@ -73,6 +78,7 @@ export class PrismaOrderRepository implements OrderRepository {
             unitPrice: item.unitPrice.amount,
             lineTotal: item.lineTotal.amount,
             taxAmount: item.taxAmount.amount,
+            discountAmount: item.discountAmount.amount,
             productSnapshot: item.productSnapshot as unknown as Prisma.InputJsonValue,
           })),
         },
@@ -215,6 +221,7 @@ function toDomain(record: OrderRecord): Order {
         unitPrice: item.unitPrice,
         lineTotal: item.lineTotal,
         taxAmount: item.taxAmount,
+        discountAmount: item.discountAmount,
         productSnapshot: item.productSnapshot as unknown as OrderProductSnapshot,
       })
     ),
@@ -224,6 +231,10 @@ function toDomain(record: OrderRecord): Order {
     shipping: toShipping(record),
     taxRateBp: record.taxRateBp,
     refundedTotal: Money.fromMinor(record.refundedTotal),
+    discount: {
+      total: Money.fromMinor(record.discountTotal),
+      promotion: (record.promotionSnapshot as unknown as OrderPromotionSnapshot | null) ?? null,
+    },
     trackingCode: record.trackingCode,
     trackingUrl: record.trackingUrl,
     cancelledAt: record.cancelledAt,

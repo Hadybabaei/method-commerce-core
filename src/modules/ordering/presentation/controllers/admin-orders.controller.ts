@@ -1,3 +1,4 @@
+import { RequirePermission } from '@shared/presentation/decorators/require-permission.decorator'
 import { RecordRefundUseCase } from '../../application/use-cases/returns.use-cases'
 import { RecordRefundRequest } from '../dto/returns.dto'
 import { CurrentActor } from '@shared/presentation/decorators/current-actor.decorator'
@@ -40,6 +41,7 @@ import { OrderResponse } from '../dto/order.response'
 @ApiTags('Admin orders')
 @ApiBearerAuth('admin')
 @UseGuards(AdminAuthGuard)
+@RequirePermission('orders')
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(
@@ -100,6 +102,7 @@ export class AdminOrdersController {
   }
 
   @Post(':id/refunds')
+  @RequirePermission('refunds')
   @ApiOperation({
     summary: 'Record a refund paid by bank transfer',
     description:

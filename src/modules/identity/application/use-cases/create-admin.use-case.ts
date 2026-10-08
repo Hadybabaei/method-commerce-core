@@ -3,6 +3,7 @@ import { CLOCK, Clock } from '@shared/application/ports/clock.port'
 import { UseCase } from '@shared/application/use-case'
 import { PASSWORD_HASHER, PasswordHasher } from '@shared/domain/services/password-hasher'
 import { Admin } from '../../domain/entities/admin.aggregate'
+import { normalizePermissions } from '../../domain/permissions'
 import { EmailAlreadyTakenError } from '../../domain/errors/identity.errors'
 import { ADMIN_REPOSITORY, AdminRepository } from '../../domain/repositories/admin.repository'
 import { EmailAddress } from '../../domain/value-objects/email-address.vo'
@@ -31,6 +32,7 @@ export class CreateAdminUseCase implements UseCase<CreateAdminCommand, AdminView
         email,
         password: PlainPassword.create(command.password),
         role: command.role,
+        permissions: normalizePermissions(command.permissions ?? []),
         firstName: command.firstName,
         lastName: command.lastName,
         nationalId: command.nationalId,

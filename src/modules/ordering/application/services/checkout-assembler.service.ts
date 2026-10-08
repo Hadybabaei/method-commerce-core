@@ -15,11 +15,19 @@ import {
 } from '@modules/catalog/application/ports/sellable-variant.port'
 import { Money } from '@shared/domain/value-objects/money'
 import {
+  AppliedPromotion,
+  ChosenPromotion,
+  PROMOTION_ENGINE,
+  PromotionEngine,
+} from '@modules/promotions/application/promotion.ports'
+import { allocate } from '@modules/promotions/domain/allocate'
+import { PricedLine } from '@modules/promotions/domain/promotion.entity'
+import {
   STORE_SETTINGS,
   StoreSettingsRepository,
 } from '@modules/store/application/store-settings.port'
 import { vatOn } from '@modules/store/domain/store-settings'
-import { OrderShipping } from '../../domain/entities/order.aggregate'
+import { OrderDiscount, OrderShipping } from '../../domain/entities/order.aggregate'
 import { OrderItem } from '../../domain/entities/order-item.entity'
 import { ShippingMethod } from '../../domain/entities/shipping-method.entity'
 import {
@@ -34,11 +42,21 @@ import {
 } from '../../domain/repositories/shipping-method.repository'
 
 export interface CheckoutLines {
+  /** Lines priced before any discount, VAT on the full line. */
   items: OrderItem[]
   /** Total parcel weight across all units. */
   weightGrams: number
   /** VAT rate applied to the lines, in basis points. */
   taxRateBp: number
+  /** Category and brand of each line, same order as items, for promotion scope. */
+  promotionLines: PricedLine[]
+  /** Whether each line is VAT exempt, same order as items. */
+  taxExempt: boolean[]
+}
+
+export interface DiscountedLines {
+  items: OrderItem[]
+  discount: OrderDiscount
 }
 
 export interface ShippingQuote {
@@ -63,7 +81,8 @@ export class CheckoutAssembler {
     @Inject(ADDRESS_READ_MODEL) private readonly addressReads: AddressReadModel,
     @Inject(SELLABLE_VARIANT_LOOKUP) private readonly variants: SellableVariantLookup,
     @Inject(SHIPPING_METHOD_REPOSITORY) private readonly shippingMethods: ShippingMethodRepository,
-    @Inject(STORE_SETTINGS) private readonly settings: StoreSettingsRepository
+    @Inject(STORE_SETTINGS) private readonly settings: StoreSettingsRepository,
+    @Inject(PROMOTION_ENGINE) private readonly promotions: PromotionEngine
   ) {}
 
   async requireOwnedAddress(userId: number, addressId: number): Promise<AddressView> {
@@ -84,6 +103,8 @@ export class CheckoutAssembler {
     lines: ReadonlyArray<{ variantId: number; quantity: number }>
   ): Promise<CheckoutLines> {
     const items: OrderItem[] = []
+    const promotionLines: PricedLine[] = []
+    const taxExempt: boolean[] = []
     let weightGrams = 0
     const { vatRateBp: taxRateBp } = await this.settings.get()
 
@@ -102,6 +123,13 @@ export class CheckoutAssembler {
 
       weightGrams += sellable.weightGrams * line.quantity
       const lineTotal = sellable.unitPrice * line.quantity
+      promotionLines.push({
+        categoryId: sellable.categoryId,
+        categoryPath: sellable.categoryPath,
+        brandId: sellable.brandId,
+        lineTotal,
+      })
+      taxExempt.push(sellable.taxExempt)
       items.push(
         OrderItem.create({
           variantId: line.variantId,
@@ -122,7 +150,66 @@ export class CheckoutAssembler {
       )
     }
 
-    return { items, weightGrams, taxRateBp }
+    return { items, weightGrams, taxRateBp, promotionLines, taxExempt }
+  }
+
+  /** The coupon or the best campaign for this basket, never both. */
+  choosePromotion(input: {
+    userId: number
+    couponCode?: string | null
+    lines: CheckoutLines
+    shippingFee: number
+    now: Date
+  }): Promise<ChosenPromotion> {
+    return this.promotions.choose({
+      userId: input.userId,
+      couponCode: input.couponCode,
+      lines: input.lines.promotionLines,
+      shippingFee: input.shippingFee,
+      now: input.now,
+    })
+  }
+
+  /** Records the promotion against the order; inside the order transaction. */
+  redeemPromotion(
+    applied: AppliedPromotion,
+    input: { orderId: number; userId: number; now: Date },
+    tx: unknown
+  ): Promise<void> {
+    return this.promotions.redeem(applied, input, tx)
+  }
+
+  /**
+   * Spreads the goods discount over the eligible lines in proportion to their
+   * value and charges VAT on what is left of each line.
+   */
+  static applyDiscount(lines: CheckoutLines, applied: AppliedPromotion | null): DiscountedLines {
+    if (!applied) {
+      return { items: lines.items, discount: { total: Money.zero, promotion: null } }
+    }
+
+    const { goods, shipping, eligible } = applied.discount
+    const shares = allocate(
+      goods,
+      lines.items.map((item, index) => (eligible[index] ? item.lineTotal.amount : 0))
+    )
+    const items = lines.items.map((item, index) => {
+      const discountAmount = shares[index]
+      const taxable = item.lineTotal.amount - discountAmount
+      return OrderItem.create({
+        variantId: item.variantId as number,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        snapshot: item.productSnapshot,
+        discountAmount: Money.fromMinor(discountAmount),
+        taxAmount: Money.fromMinor(lines.taxExempt[index] ? 0 : vatOn(taxable, lines.taxRateBp)),
+      })
+    })
+
+    return {
+      items,
+      discount: { total: Money.fromMinor(goods + shipping), promotion: applied.promotion },
+    }
   }
 
   /**
