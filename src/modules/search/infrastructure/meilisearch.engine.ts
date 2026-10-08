@@ -250,7 +250,17 @@ export class MeilisearchEngine implements SearchEngine {
     await this.task(
       this.request('PATCH', `/indexes/${uid}/settings`, {
         searchableAttributes: ['title_n', 'title_j', 'other_n'],
-        filterableAttributes: ['id', 'categoryIds', 'brandId', 'options', 'priceFrom', 'inStock'],
+        // Meilisearch only counts facets on filterable fields, so the labelled facet keys are listed too.
+        filterableAttributes: [
+          'id',
+          'categoryIds',
+          'brandId',
+          'brandFacet',
+          'categoryFacet',
+          'options',
+          'priceFrom',
+          'inStock',
+        ],
         sortableAttributes: [
           'createdAt',
           'priceFrom',

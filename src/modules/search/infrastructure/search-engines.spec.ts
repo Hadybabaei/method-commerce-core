@@ -221,6 +221,29 @@ describe('MeilisearchEngine', () => {
     )
   })
 
+  it('declares every facet it asks for as filterable (Meilisearch rejects the search otherwise)', async () => {
+    const { calls, fetcher } = fakeFetch({
+      'GET /tasks/': { status: 'succeeded' },
+      'POST /multi-search': { results: [{ hits: [], totalHits: 0 }, { hits: [] }, { hits: [] }] },
+    })
+    const engine = new MeilisearchEngine(
+      { url: 'http://meili:7700', apiKey: null, index: 'products' },
+      fetcher
+    )
+
+    await engine.search(query({ brandIds: [2], options: { رنگ: ['آبی'] } }))
+
+    const settings = calls.find((call) => call.method === 'PATCH')!.body as {
+      filterableAttributes: string[]
+    }
+    const multi = calls.find((call) => call.path === '/multi-search')!.body as {
+      queries: { facets?: string[] }[]
+    }
+    const requested = multi.queries.flatMap((q) => q.facets ?? [])
+    expect(requested.length).toBeGreaterThan(0)
+    for (const facet of requested) expect(settings.filterableAttributes).toContain(facet)
+  })
+
   it('rebuilds into a side index and swaps it in', async () => {
     const { calls, fetcher } = fakeFetch({ 'GET /tasks/': { status: 'succeeded' } })
     const engine = new MeilisearchEngine(
