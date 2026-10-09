@@ -8,7 +8,7 @@ export const redisConfig = registerAs('redis', () => {
   return {
     url: process.env.REDIS_URL ?? 'redis://127.0.0.1:6379',
     enabled,
-    /** Without Redis: `database` keeps login codes in MySQL (needed on serverless hosts), else in memory. */
+    /** Without Redis: `database` keeps login codes in the database (needed on serverless hosts), else in memory. */
     otpStore: process.env.OTP_STORE === 'database' ? ('database' as const) : ('memory' as const),
   }
 })

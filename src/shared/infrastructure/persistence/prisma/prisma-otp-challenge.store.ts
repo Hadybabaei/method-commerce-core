@@ -5,7 +5,7 @@ import {
 import { PrismaService } from './prisma.service'
 
 /**
- * OTP challenges in MySQL, for hosts without Redis where requests may land on
+ * OTP challenges in the database, for hosts without Redis where requests may land on
  * different instances (serverless). Consuming deletes the row conditionally,
  * so a code works once even under concurrent verifies.
  */

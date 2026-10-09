@@ -142,6 +142,8 @@ async function seedOperatorAdmin(): Promise<{ id: number }> {
       email: OPERATOR_EMAIL,
       password: await hash('operator1234', 10),
       role: 'operator',
+      // What an operator handles day to day; the super admin can grant more.
+      permissions: ['orders', 'customers'],
       status: true,
       first_name: 'Ali',
       last_name: 'Karimi',

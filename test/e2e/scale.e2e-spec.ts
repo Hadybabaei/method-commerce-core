@@ -1,5 +1,5 @@
 /**
- * Phase 5 against a real MySQL with seed data: search (in-memory engine, as
+ * Phase 5 against a real Postgres with seed data: search (in-memory engine, as
  * in CI), recommendations, cached reads, readiness, ratings, wishlist
  * variants and back-in-stock alerts.
  */

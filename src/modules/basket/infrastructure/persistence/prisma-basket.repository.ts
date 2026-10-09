@@ -32,14 +32,14 @@ export class PrismaBasketRepository implements BasketRepository {
   async lockByUserId(userId: number, tx: unknown): Promise<Basket | null> {
     const client = this.requireTx(tx)
     const locked = await client.$queryRaw<{ id: number }[]>`
-      SELECT id FROM basket WHERE userId = ${userId} FOR UPDATE
+      SELECT id FROM basket WHERE "userId" = ${userId} FOR UPDATE
     `
     if (locked.length === 0) {
       return null
     }
 
     await client.$queryRaw`
-      SELECT id FROM basket_item WHERE basketId = ${locked[0].id} FOR UPDATE
+      SELECT "variantId" FROM basket_item WHERE "basketId" = ${locked[0].id} FOR UPDATE
     `
 
     return this.findByUserId(userId, tx)

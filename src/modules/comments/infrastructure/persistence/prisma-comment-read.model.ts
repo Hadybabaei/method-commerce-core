@@ -97,12 +97,12 @@ export class PrismaCommentReadModel implements CommentReadModel {
   private async buyersOf(productId: number, userIds: number[]): Promise<Set<number>> {
     if (userIds.length === 0) return new Set()
     const rows = await this.prisma.$queryRaw<{ userId: number }[]>`
-      SELECT DISTINCT o.userId AS userId
-      FROM \`order\` o
-      JOIN order_item oi ON oi.orderId = o.id
-      WHERE o.userId IN (${Prisma.join([...new Set(userIds)])})
-        AND o.paidAt IS NOT NULL AND o.status <> 'CANCELLED'
-        AND CAST(JSON_EXTRACT(oi.productSnapshot, '$.productId') AS UNSIGNED) = ${productId}
+      SELECT DISTINCT o."userId" AS "userId"
+      FROM "order" o
+      JOIN order_item oi ON oi."orderId" = o.id
+      WHERE o."userId" IN (${Prisma.join([...new Set(userIds)])})
+        AND o."paidAt" IS NOT NULL AND o.status <> 'CANCELLED'
+        AND (oi."productSnapshot"->>'productId')::int = ${productId}
     `
     return new Set(rows.map((row) => Number(row.userId)))
   }

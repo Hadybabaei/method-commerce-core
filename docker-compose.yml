@@ -1,18 +1,18 @@
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: method-commerce-api-mysql
+  postgres:
+    image: postgres:17-alpine
+    container_name: method-commerce-api-postgres
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-method-commerce}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-method_commerce}
     ports:
-      - '${MYSQL_PORT:-3306}:3306'
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
-      - mysql-data:/var/lib/mysql
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test:
-        ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-p${MYSQL_ROOT_PASSWORD:-password}']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-method_commerce}']
       interval: 5s
       timeout: 5s
       retries: 20
@@ -59,13 +59,13 @@ services:
       - .env
     environment:
       NODE_ENV: production
-      DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-method-commerce}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-method_commerce}
       REDIS_URL: redis://redis:6379
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-change-me-master-key}
       OTP_EXPOSE_IN_RESPONSE: 'false'
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -112,7 +112,7 @@ services:
       BUCKET: ${S3_BUCKET:-method-commerce}
 
 volumes:
-  mysql-data:
+  postgres-data:
   meili-data:
   api-uploads:
   api-logs:

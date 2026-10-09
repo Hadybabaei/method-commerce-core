@@ -122,9 +122,9 @@ export class PrismaProductReadModel implements ProductReadModel {
     const grouped = Prisma.sql`
       FROM product p
       INNER JOIN product_variant v
-        ON v.productId = p.id AND v.is_active = 1
+        ON v."productId" = p.id AND v.is_active = true
       LEFT JOIN inventory_level il
-        ON il.variantId = v.id
+        ON il."variantId" = v.id
       WHERE ${whereSql}
       GROUP BY p.id
       HAVING ${havingSql}
@@ -182,23 +182,23 @@ export class PrismaProductReadModel implements ProductReadModel {
     const parts: Prisma.Sql[] = [Prisma.sql`1 = 1`]
 
     if (criteria.publishedOnly) {
-      parts.push(Prisma.sql`p.publish = 1`)
+      parts.push(Prisma.sql`p.publish = true`)
     }
     if (criteria.productId !== undefined) {
       parts.push(Prisma.sql`p.id = ${criteria.productId}`)
     }
     if (criteria.categoryIds && criteria.categoryIds.length > 0) {
-      parts.push(Prisma.sql`p.categoryId IN (${Prisma.join(criteria.categoryIds)})`)
+      parts.push(Prisma.sql`p."categoryId" IN (${Prisma.join(criteria.categoryIds)})`)
     }
     if (criteria.brandId !== undefined) {
-      parts.push(Prisma.sql`p.brandId = ${criteria.brandId}`)
+      parts.push(Prisma.sql`p."brandId" = ${criteria.brandId}`)
     }
     if (criteria.title) {
-      parts.push(Prisma.sql`p.title LIKE ${`%${criteria.title}%`}`)
+      parts.push(Prisma.sql`p.title ILIKE ${`%${criteria.title}%`}`)
     }
     if (criteria.search) {
       const pattern = `%${criteria.search}%`
-      parts.push(Prisma.sql`(p.title LIKE ${pattern} OR p.sub_title LIKE ${pattern})`)
+      parts.push(Prisma.sql`(p.title ILIKE ${pattern} OR p.sub_title ILIKE ${pattern})`)
     }
 
     return Prisma.join(parts, ' AND ')
@@ -256,13 +256,13 @@ export class PrismaProductReadModel implements ProductReadModel {
     }
 
     if (criteria.title) {
-      where.title = { contains: criteria.title }
+      where.title = { contains: criteria.title, mode: 'insensitive' }
     }
 
     if (criteria.search) {
       where.OR = [
-        { title: { contains: criteria.search } },
-        { sub_title: { contains: criteria.search } },
+        { title: { contains: criteria.search, mode: 'insensitive' } },
+        { sub_title: { contains: criteria.search, mode: 'insensitive' } },
       ]
     }
 

@@ -11,7 +11,7 @@ import {
   SalesPoint,
 } from '../application/backoffice.ports'
 import { toCsv } from '../domain/csv'
-import { TEHRAN_OFFSET_SQL, startOfTehranDay, startOfTehranMonth } from '../domain/tehran-time'
+import { TEHRAN_OFFSET_INTERVAL, startOfTehranDay, startOfTehranMonth } from '../domain/tehran-time'
 
 const MAX_CSV_ROWS = 50_000
 const toNumber = (value: unknown) => Number(value ?? 0)
@@ -50,11 +50,11 @@ export class PrismaReportsReadModel implements ReportsReadModel {
     const rows = await this.prisma.$queryRaw<
       { day: Date | string; orders: bigint; sales: unknown }[]
     >`
-      SELECT DATE(CONVERT_TZ(paidAt, '+00:00', ${TEHRAN_OFFSET_SQL})) AS day,
+      SELECT ("paidAt" + ${TEHRAN_OFFSET_INTERVAL}::interval)::date AS day,
              COUNT(*) AS orders,
-             SUM(total - refundedTotal) AS sales
-      FROM \`order\`
-      WHERE paidAt >= ${from} AND paidAt < ${to} AND status <> 'CANCELLED'
+             SUM(total - "refundedTotal") AS sales
+      FROM "order"
+      WHERE "paidAt" >= ${from} AND "paidAt" < ${to} AND status <> 'CANCELLED'
       GROUP BY day
       ORDER BY day
     `
@@ -69,14 +69,14 @@ export class PrismaReportsReadModel implements ReportsReadModel {
     const rows = await this.prisma.$queryRaw<
       { productId: unknown; title: string; units: unknown; revenue: unknown }[]
     >`
-      SELECT CAST(JSON_EXTRACT(oi.productSnapshot, '$.productId') AS UNSIGNED) AS productId,
-             MAX(JSON_UNQUOTE(JSON_EXTRACT(oi.productSnapshot, '$.title'))) AS title,
+      SELECT (oi."productSnapshot"->>'productId')::int AS "productId",
+             MAX(oi."productSnapshot"->>'title') AS title,
              SUM(oi.quantity) AS units,
-             SUM(oi.lineTotal - oi.discountAmount) AS revenue
+             SUM(oi."lineTotal" - oi."discountAmount") AS revenue
       FROM order_item oi
-      JOIN \`order\` o ON o.id = oi.orderId
-      WHERE o.paidAt >= ${from} AND o.paidAt < ${to} AND o.status <> 'CANCELLED'
-      GROUP BY productId
+      JOIN "order" o ON o.id = oi."orderId"
+      WHERE o."paidAt" >= ${from} AND o."paidAt" < ${to} AND o.status <> 'CANCELLED'
+      GROUP BY "productId"
       ORDER BY revenue DESC
       LIMIT ${limit}
     `
@@ -92,14 +92,14 @@ export class PrismaReportsReadModel implements ReportsReadModel {
     const rows = await this.prisma.$queryRaw<
       { categoryId: number | null; title: string | null; units: unknown; revenue: unknown }[]
     >`
-      SELECT c.id AS categoryId, c.title AS title,
+      SELECT c.id AS "categoryId", c.title AS title,
              SUM(oi.quantity) AS units,
-             SUM(oi.lineTotal - oi.discountAmount) AS revenue
+             SUM(oi."lineTotal" - oi."discountAmount") AS revenue
       FROM order_item oi
-      JOIN \`order\` o ON o.id = oi.orderId
-      LEFT JOIN product p ON p.id = CAST(JSON_EXTRACT(oi.productSnapshot, '$.productId') AS UNSIGNED)
-      LEFT JOIN category c ON c.id = p.categoryId
-      WHERE o.paidAt >= ${from} AND o.paidAt < ${to} AND o.status <> 'CANCELLED'
+      JOIN "order" o ON o.id = oi."orderId"
+      LEFT JOIN product p ON p.id = (oi."productSnapshot"->>'productId')::int
+      LEFT JOIN category c ON c.id = p."categoryId"
+      WHERE o."paidAt" >= ${from} AND o."paidAt" < ${to} AND o.status <> 'CANCELLED'
       GROUP BY c.id, c.title
       ORDER BY revenue DESC
     `
@@ -228,7 +228,7 @@ export class PrismaReportsReadModel implements ReportsReadModel {
       SELECT COUNT(*) AS count FROM (
         SELECT v.id
         FROM product_variant v
-        LEFT JOIN inventory_level l ON l.variantId = v.id
+        LEFT JOIN inventory_level l ON l."variantId" = v.id
         WHERE v.low_stock_threshold IS NOT NULL AND v.is_active = true
         GROUP BY v.id, v.low_stock_threshold
         HAVING COALESCE(SUM(l.on_hand - l.reserved), 0) <= v.low_stock_threshold

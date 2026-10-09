@@ -50,8 +50,8 @@ The API is split into a **storefront** (customers) and a **back office** (admins
 - Rate limiting (120 req/min global; OTP is 3/min)
 - Helmet, compression, CORS, Winston rotating logs
 - Local disk uploads served at a public path
-- Health check that pings MySQL
-- Docker Compose: MySQL 8.4 + Redis 7 + API
+- Health checks that ping the database (and Redis and search for readiness)
+- Docker Compose: PostgreSQL 17 + Redis 7 + Meilisearch + API
 
 ---
 
@@ -62,7 +62,7 @@ The API is split into a **storefront** (customers) and a **back office** (admins
 | Runtime | Node 22, TypeScript (strict) |
 | Framework | NestJS 12 |
 | Architecture | DDD + onion (bounded contexts) |
-| Database | MySQL 8 via Prisma 6 |
+| Database | PostgreSQL 17 via Prisma 6 (moved from MySQL 8; raw SQL uses Postgres syntax) |
 | Cache / OTP / jobs | Redis 7, BullMQ |
 | Auth | JWT (customer vs admin audiences) |
 | SMS | Console (dev) or Kavenegar |
@@ -176,7 +176,7 @@ Global prefix: `/api` (override with `API_PREFIX`).
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/health` | Liveness + `SELECT 1` on MySQL |
+| GET | `/health` | Liveness + `SELECT 1` on the database |
 | GET | `/health/ready` | Database, Redis and search; 503 when one is down |
 | POST | `/auth/otp/request` | Send SMS code (3/min) |
 | POST | `/auth/otp/verify` | Issue token pair; activates account |
@@ -245,7 +245,7 @@ Global prefix: `/api` (override with `API_PREFIX`).
 
 ## 5. Data model (high level)
 
-MySQL table names intentionally follow the **legacy method-commerce** schema so this service can share the same database. The variant/inventory side is a redesign (stock is no longer part of a variant’s identity).
+Table names follow the **legacy method-commerce** schema (it began on MySQL; the API now runs on PostgreSQL, with one baseline migration). Hand-written SQL quotes camelCase columns (`"orderId"`) because Postgres folds unquoted names to lower case. The variant/inventory side is a redesign (stock is no longer part of a variant’s identity).
 
 ```
 user ──┬── user_profile
@@ -511,7 +511,7 @@ RequestIdMiddleware → ThrottlerGuard → route guards (JWT / Admin / Roles)
 
 ```bash
 # infrastructure
-docker compose up -d mysql redis
+docker compose up -d postgres redis meilisearch
 
 # app
 cp .env.example .env   # DATABASE_URL, JWT_SECRET, ZIBAL_MERCHANT, …
@@ -525,7 +525,7 @@ Useful env:
 
 | Variable | Role |
 |---|---|
-| `DATABASE_URL` | MySQL connection |
+| `DATABASE_URL` | PostgreSQL connection (`postgresql://…`) |
 | `JWT_SECRET` | min 16 chars |
 | `OTP_TTL_SECONDS` | default 120 |
 | `OTP_EXPOSE_IN_RESPONSE` | echo OTP in API (dev only) |

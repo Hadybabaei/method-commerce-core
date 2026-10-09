@@ -152,7 +152,7 @@ function toWhere(query: ListOrdersQuery): Prisma.orderWhereInput {
   }
 
   if (query.search) {
-    where.number = { contains: query.search.trim() }
+    where.number = { contains: query.search.trim(), mode: 'insensitive' }
   }
 
   if (query.createdFrom || query.createdTo) {

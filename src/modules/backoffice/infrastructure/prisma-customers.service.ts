@@ -30,9 +30,9 @@ export class PrismaCustomersService implements CustomersService {
     const where: Prisma.userWhereInput = search
       ? {
           OR: [
-            { phone_number: { contains: search } },
-            { profile: { first_name: { contains: search } } },
-            { profile: { last_name: { contains: search } } },
+            { phone_number: { contains: search, mode: 'insensitive' } },
+            { profile: { first_name: { contains: search, mode: 'insensitive' } } },
+            { profile: { last_name: { contains: search, mode: 'insensitive' } } },
           ],
         }
       : {}

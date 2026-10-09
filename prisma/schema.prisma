@@ -1,15 +1,14 @@
 // method-commerce API - Prisma schema.
 //
-// Table and column names intentionally mirror the legacy method-commerce database so this
-// service can run against the same MySQL instance. Only the slice of the schema
-// owned by the identity and addressing modules lives here.
+// Table and column names come from the legacy method-commerce database (originally MySQL);
+// the service now runs on PostgreSQL. Every API module keeps its tables here.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

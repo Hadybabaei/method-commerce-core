@@ -1,5 +1,5 @@
 /**
- * Phase 4 back office against a real MySQL with seed data: coupons at
+ * Phase 4 back office against a real Postgres with seed data: coupons at
  * checkout, the reports' SQL, stock adjustments, customer blocking,
  * permissions and the audit log.
  */
@@ -119,7 +119,7 @@ describe('Back office (e2e)', () => {
     expect(order.discountTotal).toBe(preview.discountTotal)
     ok(await asAdmin(api().post(url(`/admin/orders/${order.id}/confirm-payment`))))
 
-    // The reports' SQL runs against MySQL here.
+    // The reports' SQL runs against Postgres here.
     const dashboard = ok(await asAdmin(api().get(url('/admin/reports/dashboard')))).body
     expect(dashboard.today.orders).toBeGreaterThanOrEqual(1)
     expect(dashboard.month.sales).toBeGreaterThan(0)

@@ -1,7 +1,7 @@
 /**
- * Full order lifecycle against a real MySQL database, with the seed data
+ * Full order lifecycle against a real Postgres database, with the seed data
  * loaded (npm run prisma:deploy && npm run seed). Runs in CI; locally it
- * needs the docker-compose MySQL. Redis is not required (REDIS_ENABLED=false).
+ * needs the docker-compose Postgres. Redis is not required (REDIS_ENABLED=false).
  */
 import { INestApplication } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -43,10 +43,14 @@ describe('Order lifecycle (e2e)', () => {
   const asAdmin = (req: request.Test) => req.set('authorization', `Bearer ${admin}`)
   const url = (path: string) => `/${prefix}${path}`
 
+  // Product reads go out as the customer: anonymous catalog reads are cached for
+  // up to a minute, and these checks need live stock.
   async function findSellableVariant(): Promise<{ slug: string; variant: Variant }> {
     const list = ok(await api().get(url('/products')).query({ limit: 50 }))
     for (const summary of list.body.items as { slug: string }[]) {
-      const product = ok(await api().get(url(`/products/${encodeURIComponent(summary.slug)}`)))
+      const product = ok(
+        await asCustomer(api().get(url(`/products/${encodeURIComponent(summary.slug)}`)))
+      )
         .body as Product
       const variant = product.variants.find((v) => v.isActive && v.availableQuantity > 0)
       if (variant) return { slug: product.slug, variant }
@@ -55,7 +59,7 @@ describe('Order lifecycle (e2e)', () => {
   }
 
   async function stockOf(slug: string, variantId: number): Promise<number> {
-    const product = ok(await api().get(url(`/products/${encodeURIComponent(slug)}`)))
+    const product = ok(await asCustomer(api().get(url(`/products/${encodeURIComponent(slug)}`))))
       .body as Product
     return product.variants.find((v) => v.id === variantId)!.availableQuantity
   }

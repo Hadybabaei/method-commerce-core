@@ -182,10 +182,10 @@ export class PrismaInventoryReservationService implements InventoryReservationSe
 
   private async lockLevelsForVariant(client: Tx, variantId: number): Promise<LockedLevel[]> {
     return client.$queryRaw<LockedLevel[]>`
-      SELECT variantId, locationId, on_hand, reserved
+      SELECT "variantId", "locationId", on_hand, reserved
       FROM inventory_level
-      WHERE variantId = ${variantId}
-      ORDER BY locationId ASC
+      WHERE "variantId" = ${variantId}
+      ORDER BY "locationId" ASC
       FOR UPDATE
     `
   }

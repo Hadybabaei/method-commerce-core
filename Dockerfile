@@ -12,7 +12,7 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 # schema reads DATABASE_URL at generate time; no live database is required
-ENV DATABASE_URL="mysql://build:build@127.0.0.1:3306/build"
+ENV DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build"
 RUN --mount=type=cache,target=/root/.npm npm install --no-audit --no-fund --fetch-retries=6 --fetch-timeout=600000 --fetch-retry-maxtimeout=120000
 
 # ---- compile Nest and generate the Prisma client ----

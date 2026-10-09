@@ -92,15 +92,15 @@ export class PrismaProductDocumentSource implements ProductDocumentSource, Bough
 
   async productIds(productId: number, limit: number): Promise<number[]> {
     const rows = await this.prisma.$queryRaw<{ productId: unknown }[]>`
-      SELECT CAST(JSON_EXTRACT(other.productSnapshot, '$.productId') AS UNSIGNED) AS productId,
-             COUNT(DISTINCT other.orderId) AS orders
+      SELECT (other."productSnapshot"->>'productId')::int AS "productId",
+             COUNT(DISTINCT other."orderId") AS orders
       FROM order_item mine
-      JOIN \`order\` o ON o.id = mine.orderId AND o.paidAt IS NOT NULL AND o.status <> 'CANCELLED'
-      JOIN order_item other ON other.orderId = mine.orderId
-      WHERE CAST(JSON_EXTRACT(mine.productSnapshot, '$.productId') AS UNSIGNED) = ${productId}
-        AND CAST(JSON_EXTRACT(other.productSnapshot, '$.productId') AS UNSIGNED) <> ${productId}
-      GROUP BY productId
-      ORDER BY orders DESC, productId DESC
+      JOIN "order" o ON o.id = mine."orderId" AND o."paidAt" IS NOT NULL AND o.status <> 'CANCELLED'
+      JOIN order_item other ON other."orderId" = mine."orderId"
+      WHERE (mine."productSnapshot"->>'productId')::int = ${productId}
+        AND (other."productSnapshot"->>'productId')::int <> ${productId}
+      GROUP BY "productId"
+      ORDER BY orders DESC, "productId" DESC
       LIMIT ${limit}
     `
     return rows.map((row) => num(row.productId))
@@ -130,13 +130,13 @@ export class PrismaProductDocumentSource implements ProductDocumentSource, Bough
 
   private async sales(ids: number[]): Promise<Map<number, number>> {
     const rows = await this.prisma.$queryRaw<{ productId: unknown; units: unknown }[]>`
-      SELECT CAST(JSON_EXTRACT(oi.productSnapshot, '$.productId') AS UNSIGNED) AS productId,
+      SELECT (oi."productSnapshot"->>'productId')::int AS "productId",
              SUM(oi.quantity) AS units
       FROM order_item oi
-      JOIN \`order\` o ON o.id = oi.orderId
-      WHERE o.paidAt IS NOT NULL AND o.status <> 'CANCELLED'
-        AND CAST(JSON_EXTRACT(oi.productSnapshot, '$.productId') AS UNSIGNED) IN (${Prisma.join(ids)})
-      GROUP BY productId
+      JOIN "order" o ON o.id = oi."orderId"
+      WHERE o."paidAt" IS NOT NULL AND o.status <> 'CANCELLED'
+        AND (oi."productSnapshot"->>'productId')::int IN (${Prisma.join(ids)})
+      GROUP BY "productId"
     `
     return new Map(rows.map((row) => [num(row.productId), num(row.units)]))
   }

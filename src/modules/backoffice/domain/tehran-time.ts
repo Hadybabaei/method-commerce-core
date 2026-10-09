@@ -3,7 +3,8 @@
  * since 2022, so the offset is a fixed +03:30.
  */
 export const TEHRAN_OFFSET_MINUTES = 210
-export const TEHRAN_OFFSET_SQL = '+03:30'
+/** The offset as a Postgres interval, for grouping timestamps by Tehran day in SQL. */
+export const TEHRAN_OFFSET_INTERVAL = '3 hours 30 minutes'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const OFFSET_MS = TEHRAN_OFFSET_MINUTES * 60 * 1000

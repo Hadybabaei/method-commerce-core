@@ -29,21 +29,22 @@ jobs:
       - run: npm run build
 
   e2e:
-    name: Migrations and end-to-end tests (MySQL)
+    name: Migrations and end-to-end tests (Postgres)
     runs-on: ubuntu-latest
     services:
-      mysql:
-        image: mysql:8.4
+      postgres:
+        image: postgres:17-alpine
         env:
-          MYSQL_ROOT_PASSWORD: password
-          MYSQL_DATABASE: method_commerce_test
-        ports: ['3306:3306']
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: method_commerce_test
+        ports: ['5432:5432']
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -ppassword"
+          --health-cmd="pg_isready -U postgres -d method_commerce_test"
           --health-interval=5s --health-timeout=5s --health-retries=30
     env:
       NODE_ENV: test
-      DATABASE_URL: mysql://root:password@127.0.0.1:3306/method_commerce_test
+      DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/method_commerce_test
       JWT_SECRET: ci-only-secret-not-used-anywhere-else
       REDIS_ENABLED: 'false'
       OTP_EXPOSE_IN_RESPONSE: 'true'
@@ -59,7 +60,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate
-      # Applies every migration to a real MySQL, so a broken migration fails here.
+      # Applies every migration to a real Postgres, so a broken migration fails here.
       - run: npx prisma migrate deploy
       - run: npm run seed
       - run: npm run test:e2e

@@ -33,7 +33,7 @@ export class PrismaOrderRepository implements OrderRepository {
   async findByIdForUpdate(id: number, tx: unknown): Promise<Order | null> {
     const client = this.requireTx(tx)
     const locked = await client.$queryRaw<{ id: number }[]>`
-      SELECT id FROM \`order\` WHERE id = ${id} FOR UPDATE
+      SELECT id FROM "order" WHERE id = ${id} FOR UPDATE
     `
     if (locked.length === 0) {
       return null
@@ -126,7 +126,7 @@ export class PrismaOrderRepository implements OrderRepository {
     const prefix = `ORD-${dayKey}-`
     const like = `${prefix}%`
     const latest = await client.$queryRaw<{ number: string }[]>`
-      SELECT number FROM \`order\`
+      SELECT number FROM "order"
       WHERE number LIKE ${like}
       ORDER BY number DESC
       LIMIT 1

@@ -1,7 +1,7 @@
 /**
  * Product search. One document per published product, flattened from the
  * catalog, inventory, comments and orders so the engine can filter, sort and
- * count facets without touching MySQL.
+ * count facets without touching the database.
  */
 
 export interface ProductDocument {

@@ -49,7 +49,12 @@ export class PrismaStockService implements StockService {
     const search = query.search?.trim()
     const where: Prisma.product_variantWhereInput = {
       ...(search
-        ? { OR: [{ sku: { contains: search } }, { product: { title: { contains: search } } }] }
+        ? {
+            OR: [
+              { sku: { contains: search, mode: 'insensitive' } },
+              { product: { title: { contains: search, mode: 'insensitive' } } },
+            ],
+          }
         : {}),
       ...(query.lowOnly ? { low_stock_threshold: { not: null } } : {}),
     }
@@ -114,7 +119,7 @@ export class PrismaStockService implements StockService {
       // Same lock checkout takes, so a sale and an adjustment cannot interleave.
       const [level] = await tx.$queryRaw<{ on_hand: number; reserved: number }[]>`
         SELECT on_hand, reserved FROM inventory_level
-        WHERE variantId = ${input.variantId} AND locationId = ${locationId}
+        WHERE "variantId" = ${input.variantId} AND "locationId" = ${locationId}
         FOR UPDATE
       `
       const onHand = (level?.on_hand ?? 0) + input.delta

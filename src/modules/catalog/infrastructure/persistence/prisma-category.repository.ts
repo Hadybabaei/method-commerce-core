@@ -116,8 +116,8 @@ export class PrismaCategoryRepository implements CategoryRepository {
 
     await tx.$executeRaw`
       UPDATE category
-      SET path = CONCAT(${newPrefix}, SUBSTRING(path, ${oldPrefix.length + 1})),
-          depth = depth + ${depthDelta}
+      SET path = CONCAT(${newPrefix}::text, SUBSTRING(path, ${oldPrefix.length + 1}::int)),
+          depth = depth + ${depthDelta}::int
       WHERE path LIKE ${`${oldPrefix}%`}
     `
   }
