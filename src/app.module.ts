@@ -56,19 +56,25 @@ assertProductionOrderingJobs()
     }),
     // Transport for domain events; handlers subscribe with `@OnEvent`.
     EventEmitterModule.forRoot(),
-    ServeStaticModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const upload = configService.getOrThrow<UploadConfig>('upload')
-        return [
-          {
-            rootPath: join(process.cwd(), upload.rootDir),
-            serveRoot: upload.publicPath,
-            serveStaticOptions: { index: false },
-          },
-        ]
-      },
-    }),
+    // Serves files uploaded to local disk. Serverless hosts keep no disk (and the
+    // bundle cannot load this module's runtime express dependency): SERVE_UPLOADS=false.
+    ...(process.env.SERVE_UPLOADS === 'false'
+      ? []
+      : [
+          ServeStaticModule.forRootAsync({
+            inject: [ConfigService],
+            useFactory: (configService: ConfigService) => {
+              const upload = configService.getOrThrow<UploadConfig>('upload')
+              return [
+                {
+                  rootPath: join(process.cwd(), upload.rootDir),
+                  serveRoot: upload.publicPath,
+                  serveStaticOptions: { index: false },
+                },
+              ]
+            },
+          }),
+        ]),
     LoggingModule,
     PrismaModule,
     RedisModule,
