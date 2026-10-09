@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { INestApplication } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory } from '@nestjs/core'
+import { ExpressAdapter } from '@nestjs/platform-express'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import compression from 'compression'
 import helmet from 'helmet'
@@ -12,7 +13,9 @@ import { configureHttp } from './app.setup'
 
 /** The configured application, shared by the HTTP server and the serverless handler. */
 export async function createApp(): Promise<INestApplication> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true })
+  // An explicit adapter, rather than Nest loading it by name at runtime, so a
+  // bundler can include it (the serverless build is one bundled file).
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(), { bufferLogs: true })
 
   // Winston replaces the default logger everywhere, including Nest internals.
   app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER))

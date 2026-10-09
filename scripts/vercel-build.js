@@ -23,6 +23,8 @@ if (migrationUrl) {
   console.warn('DATABASE_URL is not set: skipping migrations.')
 }
 run('npx nest build')
+// One CommonJS file with the ES-module packages inside (see bundle-serverless.mjs).
+run('node scripts/bundle-serverless.mjs')
 
 fs.mkdirSync('vercel-static', { recursive: true })
 fs.writeFileSync('vercel-static/robots.txt', 'User-agent: *\nDisallow: /\n')
