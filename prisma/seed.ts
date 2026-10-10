@@ -106,6 +106,24 @@ async function seedSuperAdmin(): Promise<{ id: number; email: string }> {
 
   const existing = await prisma.admin.findUnique({ where: { email } })
   if (existing) {
+    // Recovery for a lost password when the admin cannot receive reset mail
+    // (e.g. a demo address). Set the flag for one deploy, then remove it.
+    if (process.env.SEED_ADMIN_RESET_PASSWORD === 'true') {
+      if (!process.env.SEED_ADMIN_PASSWORD) {
+        throw new Error('SEED_ADMIN_RESET_PASSWORD needs SEED_ADMIN_PASSWORD to be set')
+      }
+      await prisma.admin.update({
+        where: { id: existing.id },
+        data: {
+          password: await hash(password, 10),
+          status: true,
+          reset_password_token: null,
+          reset_token_expire: null,
+        },
+      })
+      console.warn(`Reset the password of super admin ${email}. Remove SEED_ADMIN_RESET_PASSWORD now.`)
+      return { id: existing.id, email }
+    }
     console.log(`Super admin ${email} already exists; skipping.`)
     return { id: existing.id, email }
   }
